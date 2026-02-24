@@ -1,6 +1,6 @@
 # brain.py
 import ollama
-from config import OLLAMA_MODEL, SYSTEM_PROMPT, ASSISTANT_NAME, USER_NAME
+from config import OLLAMA_MODEL, SYSTEM_PROMPT
 from memory import retrieve_memories, save_memory
 
 def chat(user_message: str) -> str:
