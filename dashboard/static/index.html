@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Makonome</title>
+    <link rel="stylesheet" href="/css/main.css" />
+  </head>
+  <body>
+    <!-- Topbar -->
+    <div class="topbar">
+      <div>
+        <span class="logo">MAKO <span>NEURAL INTERFACE</span></span>
+      </div>
+      <div class="topbar-right">
+        <div class="status">
+          <div class="status-dot" id="status-dot"></div>
+          <span class="status-text" id="status-text">CONNECTING</span>
+        </div>
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-val" style="color: var(--green)" id="stat-msg">
+              0
+            </div>
+            <div class="stat-lbl">MSG</div>
+          </div>
+          <div class="stat">
+            <div class="stat-val" style="color: var(--amber)" id="stat-tools">
+              0
+            </div>
+            <div class="stat-lbl">TOOLS</div>
+          </div>
+          <div class="stat">
+            <div class="stat-val" style="color: var(--cyan)" id="stat-mem">
+              0
+            </div>
+            <div class="stat-lbl">MEM</div>
+          </div>
+        </div>
+        <button class="toggle-btn" id="toggle-btn">◈ ACTIVITY</button>
+      </div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+      <!-- Chat -->
+      <div class="chat-area" id="chat-area">
+        <div class="messages" id="messages"></div>
+        <div class="input-bar">
+          <textarea
+            id="msg-input"
+            rows="1"
+            placeholder="Talk to Mako..."
+          ></textarea>
+          <button class="icon-btn mic-btn" id="mic-btn">🎤</button>
+          <button class="icon-btn send-btn" id="send-btn">➤</button>
+        </div>
+      </div>
+
+      <!-- Activity panel -->
+      <div class="activity-panel" id="activity-panel">
+        <div class="panel-tabs">
+          <div
+            class="tab active"
+            data-tab="feed"
+            onclick="Activity.switchTab('feed')"
+          >
+            EVENTS
+          </div>
+          <div
+            class="tab"
+            data-tab="neural"
+            onclick="Activity.switchTab('neural')"
+          >
+            NEURAL MAP
+          </div>
+        </div>
+        <div class="tab-content active" id="tab-feed">
+          <div id="event-feed"></div>
+        </div>
+        <div class="tab-content" id="tab-neural">
+          <svg
+            id="neural-svg"
+            viewBox="0 0 100 100"
+            style="width: 100%; padding: 20px"
+          ></svg>
+        </div>
+      </div>
+    </div>
+
+    <script src="/js/ws.js"></script>
+    <script src="/js/stats.js"></script>
+    <script src="/js/activity.js"></script>
+    <script src="/js/chat.js"></script>
+    <script src="/js/voice.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        // ── Send message ──────────────────────────────────────
+        function sendMessage() {
+          const input = document.getElementById("msg-input");
+          const text = input.value.trim();
+          if (!text) return;
+          input.value = "";
+          input.style.height = "auto";
+
+          const time = new Date().toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+          Chat.addBubble("user", text, time);
+          Chat.showThinking();
+          Chat.setInputEnabled(false);
+
+          WS.send({ type: "user_message", content: text });
+        }
+        // wire up button clicks
+        document
+          .getElementById("send-btn")
+          .addEventListener("click", sendMessage);
+        document
+          .getElementById("mic-btn")
+          .addEventListener("click", () => Voice.toggle());
+        document
+          .getElementById("toggle-btn")
+          .addEventListener("click", () => Activity.togglePanel());
+
+        // ── Auto resize textarea ──────────────────────────────
+        document
+          .getElementById("msg-input")
+          .addEventListener("input", function () {
+            this.style.height = "auto";
+            this.style.height = Math.min(this.scrollHeight, 120) + "px";
+          });
+
+        // ── Enter to send ─────────────────────────────────────
+        document
+          .getElementById("msg-input")
+          .addEventListener("keydown", (e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              sendMessage();
+            }
+          });
+
+        // ── Wire up WebSocket events ──────────────────────────
+        WS.on("connected", () => {
+          document.getElementById("status-dot").className = "status-dot active";
+          document.getElementById("status-text").textContent = "ONLINE";
+        });
+
+        WS.on("disconnected", () => {
+          document.getElementById("status-dot").className = "status-dot";
+          document.getElementById("status-text").textContent = "RECONNECTING";
+          Chat.removeThinking();
+          Chat.setInputEnabled(true);
+        });
+
+        WS.on("message", (event) => {
+          if (event.data?.role === "assistant") {
+            const time = new Date().toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            });
+            Chat.addBubble("mako", event.data.content, time);
+            Chat.setInputEnabled(true);
+          }
+          Activity.addEvent(event);
+          Activity.setActiveNodes(Activity.activeNodesFor(event));
+          Stats.update(event.type);
+        });
+
+        WS.on("thought", (event) => {
+          Chat.updateThinking(event.data?.content);
+          Activity.addEvent(event);
+          Activity.setActiveNodes(Activity.activeNodesFor(event));
+        });
+
+        WS.on("tool_call", (event) => {
+          Activity.addEvent(event);
+          Activity.setActiveNodes(Activity.activeNodesFor(event));
+          Stats.update("tool_call");
+        });
+        WS.on("tool_result", (event) => {
+          Activity.addEvent(event);
+          Activity.setActiveNodes(Activity.activeNodesFor(event));
+        });
+        WS.on("memory", (event) => {
+          Activity.addEvent(event);
+          Activity.setActiveNodes(Activity.activeNodesFor(event));
+          Stats.update("memory");
+        });
+
+        // ── Voice init ────────────────────────────────────────
+        Voice.init((transcript) => {
+          document.getElementById("msg-input").value = transcript;
+          sendMessage();
+        });
+
+        // ── Init ──────────────────────────────────────────────
+        Activity.buildMap();
+        Activity.setActiveNodes(["brain"]);
+        WS.connect();
+      });
+    </script>
+  </body>
+</html>
