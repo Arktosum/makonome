@@ -2,14 +2,17 @@
 import os
 from datetime import datetime
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 from supabase import create_client
 
 load_dotenv()
 
 # ── Embedding model ───────────────────────────────────────────────────────────
-# same model as before — 384 dimensions, fast, great quality
-_embedder = SentenceTransformer('all-MiniLM-L6-v2')
+# fastembed — lightweight ONNX-based, no PyTorch needed
+# bge-small-en-v1.5 = 384 dimensions, matches our Supabase vector column
+print("📥 Loading embedding model...", flush=True)
+_embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+print("✅ Embedding model ready", flush=True)
 
 # ── Supabase client ───────────────────────────────────────────────────────────
 _sb = None
@@ -18,11 +21,11 @@ _sb = None
 def _get_client():
     global _sb
     if _sb is None:
-        url = os.getenv("VECTORDB_SUPABASE_URL")
-        key = os.getenv("VECTORDB_SUPABASE_ANON_KEY")
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_ANON_KEY")
         if not url or not key:
             raise ValueError(
-                "VECTORDB_SUPABASE_URL and VECTORDB_SUPABASE_ANON_KEY must be set in .env")
+                "SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env")
         _sb = create_client(url, key)
     return _sb
 
@@ -36,7 +39,7 @@ def save_memory(role: str, content: str):
     content: what was said
     """
     try:
-        embedding = _embedder.encode(content).tolist()
+        embedding = list(_embedder.embed([content]))[0].tolist()
         _get_client().table("memories").insert({
             "role":      role,
             "content":   content,
@@ -53,7 +56,7 @@ def retrieve_memories(query: str, n_results: int = 10) -> list[str]:
     Returns a list of formatted strings ready to inject into the prompt.
     """
     try:
-        query_embedding = _embedder.encode(query).tolist()
+        query_embedding = list(_embedder.embed([query]))[0].tolist()
 
         # pgvector cosine similarity search via Supabase RPC
         result = _get_client().rpc("match_memories", {
@@ -66,7 +69,7 @@ def retrieve_memories(query: str, n_results: int = 10) -> list[str]:
 
         formatted = []
         for row in result.data:
-            ts = row.get("ts", "")[:10]
+            ts = row.get("timestamp", "")[:10]
             formatted.append(f"[{row['role']} - {ts}]: {row['content']}")
 
         return formatted

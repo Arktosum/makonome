@@ -42,9 +42,6 @@ def css(filename):
 def js(filename):
     return send_from_directory(os.path.join(STATIC_DIR, 'js'), filename)
 
-@app.route('/live2d/<path:filename>')
-def live2d(filename):
-    return send_from_directory(os.path.join(STATIC_DIR, 'live2d'), filename)
 
 # ── WebSocket ─────────────────────────────────────────
 
