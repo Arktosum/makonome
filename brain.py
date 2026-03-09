@@ -1,26 +1,26 @@
 # brain.py
-import ollama
+import os
 import json
 import asyncio
 from datetime import datetime
 from collections import deque
-from config import OLLAMA_MODEL, SYSTEM_PROMPT
+from groq import Groq
+from dotenv import load_dotenv
+from config import GROQ_MODEL, SYSTEM_PROMPT
 from memory import retrieve_memories, save_memory
+
+load_dotenv()
+_groq = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # ── Conversation buffer ───────────────────────────────────────────────────────
 # Keeps the last N turns in memory so Mako has short-term context.
 # This is separate from ChromaDB — this is live conversation context,
 # not long-term semantic memory.
-
-TURNS = 5 # how many recent turns to keep in buffer (1 turn = user + assistant)
-BUFFER_SIZE = 2*TURNS  # number of turns to keep (each turn = 1 user + 1 assistant)
-# *2 because each turn is 2 messages
-_conversation_buffer = deque(maxlen=BUFFER_SIZE * 2)
-
+BUFFER_SIZE = 6  # number of turns to keep (each turn = 1 user + 1 assistant)
+_conversation_buffer = deque(maxlen=BUFFER_SIZE * 2)  # *2 because each turn is 2 messages
 
 def _add_to_buffer(role: str, content: str):
     _conversation_buffer.append({"role": role, "content": content})
-
 
 def _get_buffer_context() -> str:
     """Format buffer as a readable context block for the system prompt."""
@@ -32,9 +32,14 @@ def _get_buffer_context() -> str:
         lines.append(f"{label}: {msg['content']}")
     return "\n".join(lines)
 
-
 # ── Tools prompt ──────────────────────────────────────────────────────────────
 TOOLS_PROMPT = """
+
+CRITICAL: You have real tools available. When you write ACTION: {...} the system 
+will ACTUALLY execute that tool and return real results. Do NOT make up results.
+Do NOT write [Search results] or [Read content] — wait for the REAL tool result.
+NEVER fabricate news, weather, or any external data.
+
 You have access to tools and you should use them thoroughly before answering.
 
 THINKING PROCESS — always follow this pattern:
@@ -70,15 +75,21 @@ EXAMPLES:
 User: "what's in the news today?"
 THOUGHT: I need to search for today's news first
 ACTION: {"tool": "web_search", "args": {"query": "top news today"}}
+[sees results]
 THOUGHT: Let me read the top result to get actual content
 ACTION: {"tool": "fetch_page", "args": {"url": "https://..."}}
+[reads content]
 THOUGHT: I have enough to give a good summary now
-[gives final answer as plain text]
+[gives final answer]
+
+User: "what's the weather in Chennai?"
+THOUGHT: I should get the current weather data
+ACTION: {"tool": "get_weather", "args": {"city": "Chennai"}}
+[gets result]
+[gives final answer]
 """
 
 # ── Tool dispatcher ───────────────────────────────────────────────────────────
-
-
 def _run_tool(tool_name: str, args: dict) -> str:
     if tool_name == "web_search":
         from tools.search import web_search
@@ -120,16 +131,14 @@ def _run_tool(tool_name: str, args: dict) -> str:
         return f"Unknown tool: {tool_name}"
 
 # ── Tool call parser ──────────────────────────────────────────────────────────
-
-
 def _is_tool_call(text: str) -> dict | None:
     # look for ACTION: {...} pattern
     try:
         if 'ACTION:' in text:
             action_part = text.split('ACTION:')[-1].strip()
             start = action_part.index('{')
-            end = action_part.rindex('}') + 1
-            data = json.loads(action_part[start:end])
+            end   = action_part.rindex('}') + 1
+            data  = json.loads(action_part[start:end])
             if "tool" in data:
                 return data
     except (ValueError, json.JSONDecodeError):
@@ -139,8 +148,8 @@ def _is_tool_call(text: str) -> dict | None:
     try:
         text = text.strip()
         start = text.index('{')
-        end = text.rindex('}') + 1
-        data = json.loads(text[start:end])
+        end   = text.rindex('}') + 1
+        data  = json.loads(text[start:end])
         if "tool" in data:
             return data
     except (ValueError, json.JSONDecodeError):
@@ -148,26 +157,23 @@ def _is_tool_call(text: str) -> dict | None:
 
     return None
 
-
 def _clean_response(text: str) -> str:
-    """Strip all internal reasoning from final response."""
-    import re
+    """Strip THOUGHT/ACTION/FINAL ANSWER prefixes from final response."""
+    lines = text.split('\n')
+    clean = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('THOUGHT:'):
+            continue
+        if stripped.startswith('ACTION:'):
+            continue
+        if stripped.startswith('FINAL ANSWER:'):
+            clean.append(line.split('FINAL ANSWER:', 1)[-1].strip())
+            continue
+        clean.append(line)
+    return '\n'.join(clean).strip()
 
-    # remove THOUGHT: lines entirely
-    text = re.sub(r'THOUGHT:.*?(?=\n|ACTION:|$)', '', text, flags=re.DOTALL)
-    # remove ACTION: {...} blocks
-    text = re.sub(r'ACTION:\s*\{.*?\}', '', text, flags=re.DOTALL)
-    # remove [bracketed stage directions]
-    text = re.sub(r'\[.*?\]', '', text)
-    # remove FINAL ANSWER: prefix
-    text = re.sub(r'FINAL ANSWER:\s*', '', text)
-    # collapse multiple blank lines
-    text = re.sub(r'\n{3,}', '\n\n', text)
-
-    return text.strip()
 # ── Dashboard emitter ─────────────────────────────────────────────────────────
-
-
 def _emit(event: dict):
     """Send event to dashboard via the thread-safe queue."""
     try:
@@ -175,19 +181,52 @@ def _emit(event: dict):
         event.setdefault("time", datetime.now().strftime("%H:%M:%S"))
         event_queue.put(event)
     except Exception as e:
-        print(f"Emit error: {e}", flush=True)
+        print(f"⚠️ Emit error: {e}", flush=True)
+
+# ── LLM call ─────────────────────────────────────────────────────────────────
+def _llm(messages: list) -> str:
+    """Call Groq and return the response text."""
+    response = _groq.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=messages,
+        max_tokens=1024,
+        temperature=0.7,
+    )
+
+    # log token usage + remaining limits from headers
+    usage = response.usage
+    headers = response._headers if hasattr(response, '_headers') else {}
+    remaining_req = headers.get('x-ratelimit-remaining-requests', '?')
+    remaining_tok = headers.get('x-ratelimit-remaining-tokens', '?')
+
+    print(f"   tokens — prompt: {usage.prompt_tokens} | completion: {usage.completion_tokens} | total: {usage.total_tokens}", flush=True)
+    print(f"   limits — requests left today: {remaining_req} | tokens left this min: {remaining_tok}", flush=True)
+
+    return response.choices[0].message.content
+
+# ── Timing helper ─────────────────────────────────────────────────────────────
+def _t(label: str, start: float):
+    import time
+    elapsed = time.time() - start
+    print(f"⏱  {label}: {elapsed:.2f}s", flush=True)
+    return time.time()
 
 # ── Main think function ───────────────────────────────────────────────────────
-
-
 def think(user_message: str) -> str:
     """
     Main function. Takes user message, retrieves memories + recent conversation,
     calls LLM with ReAct agentic loop, saves to memory, returns response.
     """
+    import time
+    t0 = time.time()
+    print(f"\n{'─'*50}", flush=True)
+    print(f"🧠 think() called: {user_message[:60]}", flush=True)
 
     # 1. retrieve long-term semantic memories
+    t = time.time()
     memories = retrieve_memories(user_message)
+    t = _t("1. memory retrieve", t)
+
     if memories:
         _emit({
             "type": "memory",
@@ -212,9 +251,15 @@ def think(user_message: str) -> str:
     if buffer_context:
         system += f"\n\n--- RECENT CONVERSATION ---\n{buffer_context}\n--- END RECENT CONVERSATION ---"
 
+    print(f"   system prompt: {len(system)} chars", flush=True)
 
-    # 4. build message list — starts with system + current user message
-    # the buffer is already in the system prompt so the LLM has full context
+    # 3. emit user message to dashboard
+    _emit({
+        "type": "message",
+        "data": {"role": "user", "content": user_message}
+    })
+
+    # 4. build message list
     messages = [
         {"role": "system", "content": system},
         {"role": "user",   "content": user_message}
@@ -226,19 +271,19 @@ def think(user_message: str) -> str:
     assistant_message = ""
 
     while tool_calls_made < MAX_TOOL_CALLS:
-        response = ollama.chat(model=OLLAMA_MODEL, messages=messages)
-        assistant_message = response["message"]["content"]
+        t = time.time()
+        assistant_message = _llm(messages)
+        t = _t(f"2. LLM call #{tool_calls_made + 1}", t)
 
         tool_call = _is_tool_call(assistant_message)
 
         if not tool_call:
-            # no tool call — this is the final answer
+            print(f"   → final answer ({len(assistant_message)} chars)", flush=True)
             break
 
         # extract and emit THOUGHT if present
         if 'THOUGHT:' in assistant_message:
-            thought = assistant_message.split(
-                'THOUGHT:')[1].split('ACTION:')[0].strip()
+            thought = assistant_message.split('THOUGHT:')[1].split('ACTION:')[0].strip()
             print(f"\n💭 Mako thinks: {thought}", flush=True)
             _emit({
                 "type": "thought",
@@ -246,7 +291,7 @@ def think(user_message: str) -> str:
             })
 
         tool_name = tool_call["tool"]
-        args = tool_call.get("args", {})
+        args      = tool_call.get("args", {})
 
         print(f"\n🔧 Tool: {tool_name} | args: {args}", flush=True)
 
@@ -255,14 +300,14 @@ def think(user_message: str) -> str:
             "data": {"tool": tool_name, "args": args}
         })
 
+        t = time.time()
         tool_result = _run_tool(tool_name, args)
+        t = _t(f"3. tool: {tool_name}", t)
 
         _emit({
             "type": "tool_result",
             "data": {"tool": tool_name, "result": tool_result[:500]}
         })
-
-        print(f"📦 Tool result received for {tool_name}.", flush=True)
 
         messages.append({"role": "assistant", "content": assistant_message})
         messages.append({
@@ -282,9 +327,15 @@ def think(user_message: str) -> str:
     })
 
     # 8. save to long-term memory AND short-term buffer
+    t = time.time()
     save_memory("user", user_message)
     save_memory("assistant", assistant_message)
+    _t("4. memory save", t)
+
     _add_to_buffer("user", user_message)
     _add_to_buffer("assistant", assistant_message)
+
+    _t("TOTAL", t0)
+    print(f"{'─'*50}\n", flush=True)
 
     return assistant_message

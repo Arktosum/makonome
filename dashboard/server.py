@@ -118,5 +118,6 @@ def _keepalive():
 def start_server():
     threading.Thread(target=_broadcaster, daemon=True).start()
     threading.Thread(target=_keepalive, daemon=True).start()
-    print("📊 Dashboard on http://localhost:8765", flush=True)
-    app.run(host='localhost', port=8765, debug=False, use_reloader=False)
+    port = int(os.environ.get("PORT", 8765))
+    print(f"📊 Dashboard on port {port}", flush=True)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)

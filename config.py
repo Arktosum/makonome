@@ -1,7 +1,7 @@
 # config.py
 
 # --- LLM ---
-OLLAMA_MODEL = "llama3"  # swap this one line to change models anytime
+GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 
 # --- Memory ---

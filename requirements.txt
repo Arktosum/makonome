@@ -1,0 +1,10 @@
+flask
+flask-sock
+groq
+supabase
+sentence-transformers
+python-dotenv
+ddgs
+requests
+pygame
+edge-tts

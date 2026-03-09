@@ -1,10 +1,15 @@
 # heartbeat.py
+import os
 import threading
 import random
 import time
 from datetime import datetime
-from config import OLLAMA_MODEL, SYSTEM_PROMPT, ASSISTANT_NAME, USER_NAME
-import ollama
+from groq import Groq
+from dotenv import load_dotenv
+from config import GROQ_MODEL, SYSTEM_PROMPT, ASSISTANT_NAME, USER_NAME
+
+load_dotenv()
+_groq = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # how long since last conversation before Mako considers speaking
 MIN_SILENCE_MINUTES = 10   # won't interrupt if you just talked
@@ -62,7 +67,6 @@ def _should_speak() -> str | None:
 
     current_time = datetime.now().strftime("%A, %B %d %Y, %I:%M %p")
 
-    # retrieve relevant memories using time of day as context
     query = f"time of day {datetime.now().strftime('%H:%M')} {USER_NAME} recent activities"
     memories = retrieve_memories(query)
     memory_block = "\n".join(
@@ -75,14 +79,16 @@ def _should_speak() -> str | None:
     )
 
     try:
-        response = ollama.chat(
-            model=OLLAMA_MODEL,
+        response = _groq.chat.completions.create(
+            model=GROQ_MODEL,
             messages=[
                 {"role": "system", "content": prompt},
                 {"role": "user",   "content": "Do you have something to say?"}
-            ]
+            ],
+            max_tokens=128,
+            temperature=0.8,
         )
-        message = response["message"]["content"].strip()
+        message = response.choices[0].message.content.strip()
 
         if message.upper() == "SILENT" or "SILENT" in message.upper()[:10]:
             return None
@@ -102,14 +108,12 @@ def _heartbeat_loop(on_message):
     print(f"💓 Heartbeat started", flush=True)
 
     while True:
-        # sleep for a random interval
         sleep_minutes = random.uniform(
             MIN_SILENCE_MINUTES, MAX_SILENCE_MINUTES)
         print(
             f"💓 Next heartbeat check in {sleep_minutes:.1f} minutes", flush=True)
         time.sleep(sleep_minutes * 60)
 
-        # only consider speaking if there's been enough silence
         silence = _minutes_since_activity()
         if silence < MIN_SILENCE_MINUTES:
             print(

@@ -8,15 +8,18 @@ load_dotenv()
 
 _client = None
 
+
 def _get_client():
     global _client
     if _client is None:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_ANON_KEY")
+        url = os.getenv("BALANCEFLOW_SUPABASE_URL")
+        key = os.getenv("BALANCEFLOW_SUPABASE_ANON_KEY")
         if not url or not key:
-            raise ValueError("SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env")
+            raise ValueError(
+                "BALANCEFLOW_SUPABASE_URL and BALANCEFLOW_SUPABASE_ANON_KEY must be set in .env")
         _client = create_client(url, key)
     return _client
+
 
 def get_account_balances() -> str:
     """Get all active account balances."""
@@ -40,6 +43,7 @@ def get_account_balances() -> str:
     except Exception as e:
         return f"Could not fetch balances: {e}"
 
+
 def get_spending_summary(days: int = 30) -> str:
     """Get total income and expenses for the last N days."""
     try:
@@ -56,9 +60,10 @@ def get_spending_summary(days: int = 30) -> str:
         if not result.data:
             return f"No transactions found in the last {days} days."
 
-        income  = sum(t["amount"] for t in result.data if t["type"] == "income")
-        expense = sum(t["amount"] for t in result.data if t["type"] == "expense")
-        net     = income - expense
+        income = sum(t["amount"] for t in result.data if t["type"] == "income")
+        expense = sum(t["amount"]
+                      for t in result.data if t["type"] == "expense")
+        net = income - expense
 
         return (
             f"Last {days} days summary:\n"
@@ -69,6 +74,7 @@ def get_spending_summary(days: int = 30) -> str:
 
     except Exception as e:
         return f"Could not fetch summary: {e}"
+
 
 def get_spending_by_category(days: int = 30) -> str:
     """Get expense breakdown by category for the last N days."""
@@ -90,7 +96,8 @@ def get_spending_by_category(days: int = 30) -> str:
         cats = {}
         for t in result.data:
             cat_name = t.get("categories", {})
-            cat_name = cat_name.get("name", "Uncategorized") if cat_name else "Uncategorized"
+            cat_name = cat_name.get(
+                "name", "Uncategorized") if cat_name else "Uncategorized"
             cats[cat_name] = cats.get(cat_name, 0) + float(t["amount"])
 
         # sort by amount descending
@@ -101,6 +108,7 @@ def get_spending_by_category(days: int = 30) -> str:
 
     except Exception as e:
         return f"Could not fetch categories: {e}"
+
 
 def get_recent_transactions(limit: int = 10) -> str:
     """Get the most recent transactions."""
@@ -119,14 +127,14 @@ def get_recent_transactions(limit: int = 10) -> str:
 
         lines = []
         for t in result.data:
-            date     = t["date"][:10]
-            ttype    = t["type"].capitalize()
-            amount   = f"₹{float(t['amount']):,.2f}"
+            date = t["date"][:10]
+            ttype = t["type"].capitalize()
+            amount = f"₹{float(t['amount']):,.2f}"
             merchant = t.get("merchants", {})
             merchant = merchant.get("name", "") if merchant else ""
             category = t.get("categories", {})
             category = category.get("name", "") if category else ""
-            note     = t.get("note", "") or ""
+            note = t.get("note", "") or ""
 
             label = merchant or category or note or "Unknown"
             lines.append(f"  {date} | {ttype} | {amount} | {label}")
@@ -135,6 +143,7 @@ def get_recent_transactions(limit: int = 10) -> str:
 
     except Exception as e:
         return f"Could not fetch transactions: {e}"
+
 
 def get_unsettled_debts() -> str:
     """Get all unsettled debts."""
@@ -150,11 +159,12 @@ def get_unsettled_debts() -> str:
             return "No unsettled debts. You're all clear!"
 
         owe_me = []
-        i_owe  = []
+        i_owe = []
 
         for d in result.data:
             person = d["person_name"]
-            amount = float(d["transactions"]["amount"]) if d.get("transactions") else 0
+            amount = float(d["transactions"]["amount"]
+                           ) if d.get("transactions") else 0
             if d["direction"] == "lent":
                 owe_me.append(f"  {person} owes you ₹{amount:,.2f}")
             else:
@@ -170,6 +180,7 @@ def get_unsettled_debts() -> str:
 
     except Exception as e:
         return f"Could not fetch debts: {e}"
+
 
 def get_top_merchants(days: int = 30, limit: int = 5) -> str:
     """Get top merchants by spending."""
@@ -193,7 +204,8 @@ def get_top_merchants(days: int = 30, limit: int = 5) -> str:
             name = m.get("name", "Unknown") if m else "Unknown"
             merchants[name] = merchants.get(name, 0) + float(t["amount"])
 
-        sorted_m = sorted(merchants.items(), key=lambda x: x[1], reverse=True)[:limit]
+        sorted_m = sorted(merchants.items(),
+                          key=lambda x: x[1], reverse=True)[:limit]
         lines = [f"  {name}: ₹{amt:,.2f}" for name, amt in sorted_m]
 
         return f"Top {limit} merchants (last {days} days):\n" + "\n".join(lines)

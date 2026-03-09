@@ -1,62 +1,86 @@
-# memory.py
-import chromadb
-from chromadb.utils import embedding_functions
+# memory.py — Supabase pgvector backend
+import os
 from datetime import datetime
-import uuid
-from config import EMBEDDING_MODEL, CHROMA_DB_PATH, MEMORY_RESULTS
+from dotenv import load_dotenv
+from sentence_transformers import SentenceTransformer
+from supabase import create_client
 
-# This is the embedding function — sentence-transformers under the hood
-# It downloads the model once on first run, then caches it locally
-embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name=EMBEDDING_MODEL
-)
+load_dotenv()
 
-# Connect to (or create) our local ChromaDB database
-client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+# ── Embedding model ───────────────────────────────────────────────────────────
+# same model as before — 384 dimensions, fast, great quality
+_embedder = SentenceTransformer('all-MiniLM-L6-v2')
 
-# A "collection" is like a table in a regular database
-# We store all memories in one collection called "memories"
-collection = client.get_or_create_collection(
-    name="memories",
-    embedding_function=embedding_fn
-)
+# ── Supabase client ───────────────────────────────────────────────────────────
+_sb = None
+
+
+def _get_client():
+    global _sb
+    if _sb is None:
+        url = os.getenv("VECTORDB_SUPABASE_URL")
+        key = os.getenv("VECTORDB_SUPABASE_ANON_KEY")
+        if not url or not key:
+            raise ValueError(
+                "VECTORDB_SUPABASE_URL and VECTORDB_SUPABASE_ANON_KEY must be set in .env")
+        _sb = create_client(url, key)
+    return _sb
+
+# ── Core functions ────────────────────────────────────────────────────────────
+
 
 def save_memory(role: str, content: str):
     """
-    Save a single conversation turn to memory.
-    role is either "user" or "assistant"
-    content is what was said
+    Embed and save a single conversation turn to Supabase.
+    role: 'user' or 'assistant'
+    content: what was said
     """
-    collection.add(
-        documents=[content],
-        metadatas=[{
-            "role": role,
-            "timestamp": datetime.now().isoformat()
-        }],
-        ids=[str(uuid.uuid4())]  # unique ID for each memory
-    )
+    try:
+        embedding = _embedder.encode(content).tolist()
+        _get_client().table("memories").insert({
+            "role":      role,
+            "content":   content,
+            "embedding": embedding,
+            "timestamp": datetime.now().isoformat(),
+        }).execute()
+    except Exception as e:
+        print(f"⚠️  Memory save failed: {e}", flush=True)
 
-def retrieve_memories(query: str) -> list[str]:
+
+def retrieve_memories(query: str, n_results: int = 10) -> list[str]:
     """
-    Given the user's current message, find the most semantically
-    similar past memories and return them as a list of strings.
+    Semantic search — find the most relevant past memories for this query.
+    Returns a list of formatted strings ready to inject into the prompt.
     """
-    # Don't search if memory is empty (would throw an error)
-    if collection.count() == 0:
+    try:
+        query_embedding = _embedder.encode(query).tolist()
+
+        # pgvector cosine similarity search via Supabase RPC
+        result = _get_client().rpc("match_memories", {
+            "query_embedding": query_embedding,
+            "match_count":     n_results,
+        }).execute()
+
+        if not result.data:
+            return []
+
+        formatted = []
+        for row in result.data:
+            ts = row.get("ts", "")[:10]
+            formatted.append(f"[{row['role']} - {ts}]: {row['content']}")
+
+        return formatted
+
+    except Exception as e:
+        print(f"⚠️  Memory retrieve failed: {e}", flush=True)
         return []
 
-    results = collection.query(
-        query_texts=[query],
-        n_results=min(MEMORY_RESULTS, collection.count())
-    )
 
-    # results["documents"] is a list of lists, we want the inner list
-    memories = results["documents"][0]
-    metadatas = results["metadatas"][0]
-
-    # Format each memory nicely so the LLM understands context
-    formatted = []
-    for mem, meta in zip(memories, metadatas):
-        formatted.append(f"[{meta['role']} - {meta['timestamp'][:10]}]: {mem}")
-
-    return formatted
+def clear_memories():
+    """Wipe all memories. Used by utils/clear_memory.py"""
+    try:
+        _get_client().table("memories").delete().neq(
+            "id", "00000000-0000-0000-0000-000000000000").execute()
+        print("✅ All memories cleared.")
+    except Exception as e:
+        print(f"⚠️  Clear failed: {e}", flush=True)
