@@ -7,8 +7,10 @@ services:
     envVars:
       - key: GROQ_API_KEY
         sync: false
-      - key: SUPABASE_URL
+      - key: VECTORDB_SUPABASE_URL
         sync: false
-      - key: SUPABASE_ANON_KEY
+      - key: VECTORDB_SUPABASE_ANON_KEY
         sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.8
     autoDeploy: true
