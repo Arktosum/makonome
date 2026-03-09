@@ -22,7 +22,8 @@ const WS = (() => {
   function connect() {
     if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) return;
 
-    _ws = new WebSocket(`ws://${location.host}/ws`);
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    _ws = new WebSocket(`${protocol}//${location.host}/ws`);
 
     _ws.onopen = () => {
       console.log('WS connected');
