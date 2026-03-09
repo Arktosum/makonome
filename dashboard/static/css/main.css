@@ -250,3 +250,83 @@ body::before {
     margin: 4px 0;
     color: #c8e8d8;
 }
+
+/* ── Character panel ── */
+.character-panel {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--green3);
+  background: #010d04;
+  position: relative;
+  overflow: hidden;
+}
+
+#live2d-canvas {
+  width: 100%;
+  flex: 1;
+  display: block;
+}
+
+.character-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--green3);
+  background: #010801;
+  flex-shrink: 0;
+}
+
+.char-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green2);
+  transition: all 0.3s;
+}
+.char-dot.speaking {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse 0.5s infinite;
+}
+.char-dot.thinking {
+  background: var(--amber);
+  box-shadow: 0 0 8px var(--amber);
+  animation: pulse 0.8s infinite;
+}
+
+#char-status-text {
+  font-size: 9px;
+  color: var(--green2);
+  letter-spacing: 2px;
+}
+
+.character-panel {
+    width: 300px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--green3);
+    background: radial-gradient(ellipse at 50% 30%, #021a0a 0%, #010601 100%);
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+}
+
+#mako-char-container {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+}
+
+#mako-char-wrap {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;  /* changed from center */
+    position: relative;
+    overflow: hidden;
+    padding-top: 10px;
+}

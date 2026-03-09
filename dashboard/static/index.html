@@ -43,6 +43,15 @@
 
     <!-- Main -->
     <div class="main">
+      <!-- Character Panel -->
+
+      <div class="character-panel" id="character-panel">
+        <div id="mako-char-container" style="width: 100%; height: 100%"></div>
+        <div class="character-status">
+          <div class="char-dot" id="char-dot"></div>
+          <span id="char-status-text">IDLE</span>
+        </div>
+      </div>
       <!-- Chat -->
       <div class="chat-area" id="chat-area">
         <div class="messages" id="messages"></div>
@@ -87,14 +96,96 @@
         </div>
       </div>
     </div>
-
     <script src="/js/ws.js"></script>
     <script src="/js/stats.js"></script>
     <script src="/js/activity.js"></script>
     <script src="/js/chat.js"></script>
     <script src="/js/voice.js"></script>
+    <script src="/js/mako_character.js"></script>
     <script>
       document.addEventListener("DOMContentLoaded", () => {
+        MakoCharacter.mount("mako-char-container");
+
+        // ── WebSocket events ──────────────────────────────────
+        WS.on("message", (event) => {
+          if (event.data?.role === "user") return;
+
+          if (event.data?.role === "assistant") {
+            Chat.removeThinking();
+            const time = new Date().toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            });
+            Chat.addBubble("mako", event.data.content, time);
+            Chat.setInputEnabled(true);
+
+            const mood = MakoCharacter.detectMood(event.data.content);
+            MakoCharacter.setMood(mood);
+            MakoCharacter.startSpeaking();
+            document.getElementById("char-dot").className = "char-dot speaking";
+            document.getElementById("char-status-text").textContent =
+              "SPEAKING";
+
+            const words = event.data.content.split(" ").length;
+            setTimeout(
+              () => {
+                MakoCharacter.stopSpeaking();
+                MakoCharacter.setMood("idle");
+                document.getElementById("char-dot").className = "char-dot";
+                document.getElementById("char-status-text").textContent =
+                  "IDLE";
+              },
+              Math.max(2000, words * 350),
+            );
+          }
+
+          Activity.addEvent(event);
+          Activity.setActiveNodes(Activity.activeNodesFor(event));
+          Stats.update(event.type);
+        });
+
+        WS.on("thought", (event) => {
+          MakoCharacter.setMood("thinking");
+          document.getElementById("char-dot").className = "char-dot thinking";
+          document.getElementById("char-status-text").textContent = "THINKING";
+          Chat.updateThinking(event.data?.content);
+          Activity.addEvent(event);
+          Activity.setActiveNodes(Activity.activeNodesFor(event));
+        });
+
+        WS.on("tool_call", (event) => {
+          MakoCharacter.setMood("thinking");
+          document.getElementById("char-dot").className = "char-dot thinking";
+          document.getElementById("char-status-text").textContent = "SEARCHING";
+          Activity.addEvent(event);
+          Activity.setActiveNodes(Activity.activeNodesFor(event));
+          Stats.update("tool_call");
+        });
+
+        WS.on("tool_result", (event) => {
+          Activity.addEvent(event);
+          Activity.setActiveNodes(Activity.activeNodesFor(event));
+        });
+
+        WS.on("memory", (event) => {
+          Activity.addEvent(event);
+          Activity.setActiveNodes(Activity.activeNodesFor(event));
+          Stats.update("memory");
+        });
+
+        WS.on("connected", () => {
+          document.getElementById("status-dot").className = "status-dot active";
+          document.getElementById("status-text").textContent = "ONLINE";
+        });
+
+        WS.on("disconnected", () => {
+          document.getElementById("status-dot").className = "status-dot";
+          document.getElementById("status-text").textContent = "RECONNECTING";
+          Chat.removeThinking();
+          Chat.setInputEnabled(true);
+        });
+
         // ── Send message ──────────────────────────────────────
         function sendMessage() {
           const input = document.getElementById("msg-input");
@@ -111,10 +202,9 @@
           Chat.addBubble("user", text, time);
           Chat.showThinking();
           Chat.setInputEnabled(false);
-
           WS.send({ type: "user_message", content: text });
         }
-        // wire up button clicks
+
         document
           .getElementById("send-btn")
           .addEventListener("click", sendMessage);
@@ -125,7 +215,6 @@
           .getElementById("toggle-btn")
           .addEventListener("click", () => Activity.togglePanel());
 
-        // ── Auto resize textarea ──────────────────────────────
         document
           .getElementById("msg-input")
           .addEventListener("input", function () {
@@ -133,7 +222,6 @@
             this.style.height = Math.min(this.scrollHeight, 120) + "px";
           });
 
-        // ── Enter to send ─────────────────────────────────────
         document
           .getElementById("msg-input")
           .addEventListener("keydown", (e) => {
@@ -143,62 +231,13 @@
             }
           });
 
-        // ── Wire up WebSocket events ──────────────────────────
-        WS.on("connected", () => {
-          document.getElementById("status-dot").className = "status-dot active";
-          document.getElementById("status-text").textContent = "ONLINE";
-        });
-
-        WS.on("disconnected", () => {
-          document.getElementById("status-dot").className = "status-dot";
-          document.getElementById("status-text").textContent = "RECONNECTING";
-          Chat.removeThinking();
-          Chat.setInputEnabled(true);
-        });
-
-        WS.on("message", (event) => {
-          if (event.data?.role === "assistant") {
-            const time = new Date().toLocaleTimeString("en-US", {
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-            });
-            Chat.addBubble("mako", event.data.content, time);
-            Chat.setInputEnabled(true);
-          }
-          Activity.addEvent(event);
-          Activity.setActiveNodes(Activity.activeNodesFor(event));
-          Stats.update(event.type);
-        });
-
-        WS.on("thought", (event) => {
-          Chat.updateThinking(event.data?.content);
-          Activity.addEvent(event);
-          Activity.setActiveNodes(Activity.activeNodesFor(event));
-        });
-
-        WS.on("tool_call", (event) => {
-          Activity.addEvent(event);
-          Activity.setActiveNodes(Activity.activeNodesFor(event));
-          Stats.update("tool_call");
-        });
-        WS.on("tool_result", (event) => {
-          Activity.addEvent(event);
-          Activity.setActiveNodes(Activity.activeNodesFor(event));
-        });
-        WS.on("memory", (event) => {
-          Activity.addEvent(event);
-          Activity.setActiveNodes(Activity.activeNodesFor(event));
-          Stats.update("memory");
-        });
-
         // ── Voice init ────────────────────────────────────────
         Voice.init((transcript) => {
           document.getElementById("msg-input").value = transcript;
           sendMessage();
         });
 
-        // ── Init ──────────────────────────────────────────────
+        // ── Init ─────────────────────────────────────────────
         Activity.buildMap();
         Activity.setActiveNodes(["brain"]);
         WS.connect();

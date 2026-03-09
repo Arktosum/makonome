@@ -1,13 +1,13 @@
 // js/activity.js — activity panel, event feed, neural map
 const Activity = (() => {
-  let panelOpen = false;
+  let panelOpen = true;
 
   // ── Panel toggle ─────────────────────────────────────
   function togglePanel() {
     panelOpen = !panelOpen;
-    document.getElementById('activity-panel').classList.toggle('open', panelOpen);
-    document.getElementById('chat-area').classList.toggle('panel-open', panelOpen);
-    document.getElementById('toggle-btn').classList.toggle('active', panelOpen);
+    document.getElementById('activity-panel').classList.add('open');
+    document.getElementById('chat-area').classList.add('panel-open');
+    document.getElementById('toggle-btn').classList.add('active');
   }
 
   // ── Tabs ─────────────────────────────────────────────

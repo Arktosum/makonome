@@ -1,24 +1,29 @@
 # voice/mouth.py
+import edge_tts
+import asyncio
+import tempfile
+import os
+
+async def _speak_async(text: str):
+    text = text.replace("*", "").replace("#", "").replace("`", "")
+    
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+        tmp_path = f.name
+    
+    try:
+        communicate = edge_tts.Communicate(text, voice="en-US-JennyNeural")
+        await communicate.save(tmp_path)
+        
+        # play with pygame
+        import pygame
+        pygame.mixer.init()
+        pygame.mixer.music.load(tmp_path)
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
+            pygame.time.Clock().tick(10)
+        pygame.mixer.music.unload()
+    finally:
+        os.unlink(tmp_path)
 
 def speak(text: str):
-    import pyttsx3
-
-    # clean markdown since we're speaking
-    text = text.replace("*", "").replace("#", "").replace("`", "")
-
-    # reinitialize fresh every time — fixes Windows audio issues
-    engine = pyttsx3.init()
-
-    # find a female voice
-    voices = engine.getProperty('voices')
-    for voice in voices:
-        if 'female' in voice.name.lower() or 'zira' in voice.name.lower():
-            engine.setProperty('voice', voice.id)
-            break
-
-    engine.setProperty('rate', 175)
-    engine.setProperty('volume', 0.9)
-
-    engine.say(text)
-    engine.runAndWait()
-    engine.stop()
+    asyncio.run(_speak_async(text))

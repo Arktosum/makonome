@@ -1,12 +1,13 @@
 # main.py
 import threading
-import asyncio
+import time
+from datetime import datetime
 from brain import think
-from config import ASSISTANT_NAME, USER_NAME
+from config import SYSTEM_PROMPT, USER_NAME
 from voice.mouth import speak
 from dashboard.server import set_think_fn, start_server, event_queue
+from heartbeat import start_heartbeat, update_activity
 import json
-from datetime import datetime
 
 
 def start_dashboard_server():
@@ -22,16 +23,38 @@ def get_input(voice_mode: bool) -> str:
         return input(f"{USER_NAME}: ").strip()
 
 
+def on_heartbeat_message(text: str):
+    """Called by heartbeat when Mako wants to say something unprompted."""
+    # emit to dashboard as a chat bubble
+    event_queue.put({
+        "type": "message",
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "data": {"role": "assistant", "content": text}
+    })
+    # speak it out loud
+    try:
+        speak(text)
+    except Exception as e:
+        print(f"💓 TTS error: {e}", flush=True)
+
+    # save to memory so Mako remembers she said this
+    from memory import save_memory
+    save_memory("assistant", f"[unprompted] {text}")
+
+
 def main():
-    # register think function with dashboard so browser can trigger it
+    # register think function with dashboard
     set_think_fn(think)
 
-    # start dashboard server in background
+    # start dashboard server
     thread = threading.Thread(target=start_dashboard_server, daemon=True)
     thread.start()
 
+    # small delay to let server start
+    time.sleep(1)
+
     print(f"\n{'='*40}")
-    print(f"  {ASSISTANT_NAME} is online.")
+    print(f"  {SYSTEM_PROMPT} is online.")
     print(f"{'='*40}\n")
 
     print("Input mode:")
@@ -54,12 +77,17 @@ def main():
 
     print(f"\n{'='*40}\n")
 
+    # start heartbeat
+    start_heartbeat(on_heartbeat_message)
+    print(f"💓 Heartbeat active — Mako will check in on you randomly", flush=True)
+
     startup = f"Hey {USER_NAME}! I'm here. What's up?"
-    print(f"{ASSISTANT_NAME}: {startup}")
+    print(f"{SYSTEM_PROMPT}: {startup}")
+
     if voice_output:
         speak(startup)
 
-    # emit startup message to dashboard
+    # emit startup to dashboard
     event_queue.put({
         "type": "message",
         "time": datetime.now().strftime("%H:%M:%S"),
@@ -67,14 +95,12 @@ def main():
     })
 
     if dashboard_mode:
-        # just keep alive, dashboard handles all input
         print("  Waiting for input from dashboard...")
         try:
             while True:
-                import time
                 time.sleep(1)
         except KeyboardInterrupt:
-            print(f"\n{ASSISTANT_NAME}: Shutting down. See you soon!\n")
+            print(f"\n{SYSTEM_PROMPT}: Shutting down. See you soon!\n")
         return
 
     while True:
@@ -83,9 +109,12 @@ def main():
             if not user_input:
                 continue
 
+            # update activity timestamp so heartbeat knows you're here
+            update_activity()
+
             if any(word in user_input.lower() for word in ["goodbye", "bye mako", "shut down", "exit"]):
                 farewell = f"Okay, talk soon {USER_NAME}! I'll remember everything."
-                print(f"\n{ASSISTANT_NAME}: {farewell}\n")
+                print(f"\n{SYSTEM_PROMPT}: {farewell}\n")
                 if voice_output:
                     speak(farewell)
                 break
@@ -94,14 +123,19 @@ def main():
                 print(f"\n{USER_NAME}: {user_input}")
 
             response = think(user_input)
-            print(f"\n{ASSISTANT_NAME}: {response}\n")
+
+            # update activity after response too
+            update_activity()
+
+            print(f"\n{SYSTEM_PROMPT}: {response}\n")
             if voice_output:
                 speak(response)
 
         except KeyboardInterrupt:
-            print(f"\n\n{ASSISTANT_NAME}: Shutting down. See you soon!\n")
+            print(f"\n\n{SYSTEM_PROMPT}: Shutting down. See you soon!\n")
             break
 
 
 if __name__ == "__main__":
+    print("Starting Mako...")
     main()
