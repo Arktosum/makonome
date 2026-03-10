@@ -6,7 +6,7 @@ import time
 from datetime import datetime
 from groq import Groq
 from dotenv import load_dotenv
-from config import GROQ_MODEL, SYSTEM_PROMPT, ASSISTANT_NAME, USER_NAME
+from config import GROQ_MODEL, SYSTEM_PROMPT, ASSISTANT_NAME, USER_NAME, HEARTBEAT_PROMPT
 
 load_dotenv()
 _groq = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -33,31 +33,6 @@ def _minutes_since_activity():
         return delta.total_seconds() / 60
 
 
-HEARTBEAT_PROMPT = """
-You are Mako, checking in on {user} unprompted like a real friend would.
-
-Current time: {time}
-
-Relevant memories about {user}:
-{memories}
-
-Your job: decide if you have something genuine and natural to say right now.
-Think about:
-- The time of day (morning greeting, evening check-in, late night concern)
-- Something from your memories worth following up on
-- A friendly observation or thought
-- A reminder about something they mentioned
-
-Rules:
-- If you have something worth saying, respond naturally in 1-2 sentences max
-- Sound like a real friend, not an assistant
-- NEVER say "I noticed you haven't talked to me" or anything that sounds needy
-- NEVER make up fake memories or events
-- If you genuinely have nothing worth saying right now, respond with exactly: SILENT
-- Be SILENT more often than not — only speak when it feels truly natural
-"""
-
-
 def _should_speak() -> str | None:
     """
     Ask the LLM if Mako has something worth saying.
@@ -66,6 +41,11 @@ def _should_speak() -> str | None:
     from memory import retrieve_memories
 
     current_time = datetime.now().strftime("%A, %B %d %Y, %I:%M %p")
+    silence_mins = _minutes_since_activity()
+    if silence_mins < 60:
+        silence_str = f"{int(silence_mins)} minutes"
+    else:
+        silence_str = f"{int(silence_mins // 60)} hours"
 
     query = f"time of day {datetime.now().strftime('%H:%M')} {USER_NAME} recent activities"
     memories = retrieve_memories(query)
@@ -75,6 +55,7 @@ def _should_speak() -> str | None:
     prompt = HEARTBEAT_PROMPT.format(
         user=USER_NAME,
         time=current_time,
+        silence=silence_str,
         memories=memory_block
     )
 

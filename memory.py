@@ -21,11 +21,11 @@ _sb = None
 def _get_client():
     global _sb
     if _sb is None:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_ANON_KEY")
+        url = os.getenv("VECTORDB_SUPABASE_URL")
+        key = os.getenv("VECTORDB_SUPABASE_ANON_KEY")
         if not url or not key:
             raise ValueError(
-                "SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env")
+                "VECTORDB_SUPABASE_URL and VECTORDB_SUPABASE_ANON_KEY must be set in .env")
         _sb = create_client(url, key)
     return _sb
 
@@ -87,3 +87,108 @@ def clear_memories():
         print("✅ All memories cleared.")
     except Exception as e:
         print(f"⚠️  Clear failed: {e}", flush=True)
+
+
+# ── Facts (Layer 1 — core identity) ──────────────────────────────────────────
+
+def save_fact(category: str, fact: str, confidence: int = 3, expires_days: int = None):
+    """
+    Save or update a core fact about the user.
+    expires_days=None means permanent (Layer 1 identity).
+    expires_days=7 means current context (Layer 2).
+    """
+    from datetime import timedelta
+    try:
+        sb = _get_client()
+
+        expires_at = None
+        if expires_days is not None:
+            expires_at = (datetime.now() +
+                          timedelta(days=expires_days)).isoformat()
+
+        # check if a similar fact exists in this category
+        existing = sb.table("facts") \
+            .select("id, fact") \
+            .eq("category", category) \
+            .execute()
+
+        # simple dedup — if first 40 chars match, treat as same fact and update
+        for row in (existing.data or []):
+            if row["fact"][:40].lower() == fact[:40].lower():
+                sb.table("facts").update({
+                    "fact":       fact,
+                    "confidence": confidence,
+                    "expires_at": expires_at,
+                    "updated_at": datetime.now().isoformat(),
+                }).eq("id", row["id"]).execute()
+                layer = "context" if expires_days else "fact"
+                print(
+                    f"📝 {layer.title()} updated [{category}]: {fact[:60]}", flush=True)
+                return
+
+        # insert new fact
+        sb.table("facts").insert({
+            "category":   category,
+            "fact":       fact,
+            "confidence": confidence,
+            "expires_at": expires_at,
+            "updated_at": datetime.now().isoformat(),
+        }).execute()
+        layer = "Context" if expires_days else "Fact"
+        print(f"📝 {layer} saved [{category}]: {fact[:60]}", flush=True)
+
+    except Exception as e:
+        print(f"⚠️  Fact save failed: {e}", flush=True)
+
+
+def get_all_facts() -> str:
+    """
+    Retrieve all non-expired facts grouped by layer and category.
+    Layer 1 = permanent facts (expires_at is null)
+    Layer 2 = current context (expires_at is set, not yet expired)
+    Returns a formatted string ready to inject into the system prompt.
+    """
+    try:
+        now = datetime.now().isoformat()
+        result = _get_client().table("facts") \
+            .select("category, fact, confidence, expires_at") \
+            .order("category") \
+            .order("confidence", desc=True) \
+            .execute()
+
+        if not result.data:
+            return ""
+
+        permanent = {}   # Layer 1 — no expiry
+        context = {}   # Layer 2 — has expiry, not yet expired
+
+        for row in result.data:
+            # skip expired rows
+            if row["expires_at"] and row["expires_at"] < now:
+                continue
+
+            cat = row["category"].upper()
+            if row["expires_at"] is None:
+                permanent.setdefault(cat, []).append(row["fact"])
+            else:
+                context.setdefault(cat, []).append(row["fact"])
+
+        lines = []
+
+        if permanent:
+            lines.append("CORE IDENTITY:")
+            for cat, facts in permanent.items():
+                for f in facts:
+                    lines.append(f"  [{cat}] {f}")
+
+        if context:
+            lines.append("CURRENT CONTEXT (recent, time-sensitive):")
+            for cat, facts in context.items():
+                for f in facts:
+                    lines.append(f"  [{cat}] {f}")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        print(f"⚠️  Facts retrieve failed: {e}", flush=True)
+        return ""

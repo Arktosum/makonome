@@ -42,7 +42,14 @@ def css(filename):
 def js(filename):
     return send_from_directory(os.path.join(STATIC_DIR, 'js'), filename)
 
-
+@app.route('/api/clear-memories', methods=['POST'])
+def clear_memories_endpoint():
+    try:
+        from memory import clear_memories
+        clear_memories()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}, 500
 # ── WebSocket ─────────────────────────────────────────
 
 
@@ -112,6 +119,7 @@ def _keepalive():
                 _clients.remove(client)
 
 
+    
 def start_server():
     threading.Thread(target=_broadcaster, daemon=True).start()
     threading.Thread(target=_keepalive, daemon=True).start()

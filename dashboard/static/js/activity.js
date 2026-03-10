@@ -1,161 +1,160 @@
 // js/activity.js — activity panel, event feed, neural map
 const Activity = (() => {
-  let panelOpen = true;
+  let _panelOpen = false;
+  let _currentTab = 'feed';
 
-  // ── Panel toggle ─────────────────────────────────────
-  function togglePanel() {
-    panelOpen = !panelOpen;
-    document.getElementById('activity-panel').classList.add('open');
-    document.getElementById('chat-area').classList.add('panel-open');
-    document.getElementById('toggle-btn').classList.add('active');
-  }
-
-  // ── Tabs ─────────────────────────────────────────────
-  function switchTab(name) {
-    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
-    document.querySelectorAll('.tab-content').forEach(t => t.classList.toggle('active', t.id === `tab-${name}`));
-  }
-
-  // ── Event feed ───────────────────────────────────────
-  function addEvent(event) {
-    const feed = document.getElementById('event-feed');
-    const card = document.createElement('div');
-    card.className = 'event-card';
-    card.innerHTML = buildCard(event);
-    feed.appendChild(card);
-    feed.scrollTop = feed.scrollHeight;
-  }
-
-  function buildCard(event) {
-    const badge = buildBadge(event.type);
-    const time  = `<span class="event-time">${event.time || ''}</span>`;
-    let body = '';
-
-    if (event.type === 'message') {
-      const isUser = event.data?.role === 'user';
-      body = `<div class="event-body" style="color:${isUser?'#88ccff':'#4dff8f'}">
-        ${isUser ? '▶ YOU' : '◀ MAKO'}: 
-        <span style="color:#8aab95">${event.data?.content || ''}</span>
-      </div>`;
-    } else if (event.type === 'tool_call') {
-      body = `<div class="tool-box">
-        <div class="tool-name">⚡ ${event.data?.tool}</div>
-        <pre class="tool-args">${JSON.stringify(event.data?.args, null, 2)}</pre>
-      </div>`;
-    } else if (event.type === 'tool_result') {
-      body = `<div class="result-box">
-        <div class="result-lbl">↩ ${event.data?.tool}</div>
-        <pre class="result-txt">${event.data?.result || ''}</pre>
-      </div>`;
-    } else if (event.type === 'memory') {
-      const hits = (event.data?.results || []).map(r => `<div class="mem-hit">· ${r}</div>`).join('');
-      body = `<div class="mem-box">
-        <div class="mem-query">🔍 "${event.data?.query}"</div>
-        ${hits}
-      </div>`;
-    } else if (event.type === 'thought') {
-      body = `<div class="think-box">
-        <div class="think-txt">💭 ${event.data?.content}</div>
-      </div>`;
-    }
-
-    return `<div class="event-top">${badge}${time}</div>${body}`;
-  }
-
-  function buildBadge(type) {
-    const map = {
-      message:     ['badge-msg',    'MSG'   ],
-      tool_call:   ['badge-tool',   'TOOL'  ],
-      tool_result: ['badge-result', 'RESULT'],
-      memory:      ['badge-mem',    'MEM'   ],
-      thought:     ['badge-think',  'THINK' ],
-    };
-    const [cls, label] = map[type] || ['badge-msg', type.toUpperCase()];
-    return `<span class="badge ${cls}">${label}</span>`;
-  }
-
-  // ── Neural map ────────────────────────────────────────
   const NODES = {
-    ears:   { x:15, y:50, icon:'🎤', label:'EARS'   },
-    memory: { x:38, y:18, icon:'💾', label:'MEMORY' },
-    brain:  { x:50, y:50, icon:'⚡', label:'BRAIN'  },
-    tools:  { x:62, y:82, icon:'🔧', label:'TOOLS'  },
-    mouth:  { x:85, y:50, icon:'🔊', label:'MOUTH'  },
+    ears:   { x: 15, y: 50, label: 'EARS' },
+    memory: { x: 38, y: 22, label: 'MEM' },
+    brain:  { x: 60, y: 50, label: 'BRAIN' },
+    tools:  { x: 38, y: 78, label: 'TOOLS' },
+    mouth:  { x: 82, y: 50, label: 'OUT' },
   };
+
   const EDGES = [
-    ['ears','brain'],['brain','memory'],['memory','brain'],
-    ['brain','tools'],['tools','brain'],['brain','mouth'],
+    ['ears','brain'], ['brain','memory'], ['memory','brain'],
+    ['brain','tools'], ['tools','brain'], ['brain','mouth']
   ];
 
-  function buildMap() {
-    const svg = document.getElementById('neural-svg');
-    const ns = 'http://www.w3.org/2000/svg';
-    svg.innerHTML = `<defs>
-      <filter id="glow">
-        <feGaussianBlur stdDeviation="1.5" result="b"/>
-        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-      </filter></defs>`;
-
-    EDGES.forEach(([a,b]) => {
-      const line = document.createElementNS(ns,'line');
-      line.setAttribute('x1',NODES[a].x); line.setAttribute('y1',NODES[a].y);
-      line.setAttribute('x2',NODES[b].x); line.setAttribute('y2',NODES[b].y);
-      line.setAttribute('stroke','#1a3a2a'); line.setAttribute('stroke-width','0.4');
-      line.id = `edge-${a}-${b}`; line.style.transition='all 0.4s';
-      svg.appendChild(line);
-    });
-
-    Object.entries(NODES).forEach(([name,n]) => {
-      const g = document.createElementNS(ns,'g'); g.id = `node-${name}`;
-      const r = name==='brain'?7:5;
-      const c = document.createElementNS(ns,'circle');
-      c.setAttribute('cx',n.x); c.setAttribute('cy',n.y); c.setAttribute('r',r);
-      c.setAttribute('fill','#060f0a'); c.setAttribute('stroke','#1a4a2a'); c.setAttribute('stroke-width','0.6');
-      c.style.transition='all 0.4s'; g.appendChild(c);
-      const ic = document.createElementNS(ns,'text');
-      ic.setAttribute('x',n.x); ic.setAttribute('y',n.y+0.8);
-      ic.setAttribute('text-anchor','middle'); ic.setAttribute('font-size',name==='brain'?'5':'4');
-      ic.setAttribute('fill','#2a6a3a'); ic.textContent=n.icon; ic.style.transition='all 0.4s'; g.appendChild(ic);
-      const lb = document.createElementNS(ns,'text');
-      lb.setAttribute('x',n.x); lb.setAttribute('y',n.y+(name==='brain'?11:9));
-      lb.setAttribute('text-anchor','middle'); lb.setAttribute('font-size','3');
-      lb.setAttribute('fill','#1a4a2a'); lb.setAttribute('font-family','monospace'); lb.textContent=n.label; g.appendChild(lb);
-      svg.appendChild(g);
-    });
+  function togglePanel() {
+    _panelOpen = !_panelOpen;
+    const panel = document.getElementById('activity-panel');
+    const chat  = document.getElementById('chat-area');
+    const btn   = document.getElementById('toggle-btn');
+    panel.classList.toggle('open', _panelOpen);
+    chat.classList.toggle('panel-open', _panelOpen);
+    btn.classList.toggle('active', _panelOpen);
   }
 
-  function setActiveNodes(active) {
-    Object.keys(NODES).forEach(name => {
-      const g = document.getElementById(`node-${name}`);
-      if (!g) return;
-      const on = active.includes(name);
-      const c = g.querySelector('circle');
-      const ic = g.querySelector('text');
-      c.setAttribute('stroke', on?'#1df2a0':'#1a4a2a');
-      c.setAttribute('stroke-width', on?'1.2':'0.6');
-      c.setAttribute('filter', on?'url(#glow)':'');
-      ic.setAttribute('fill', on?'#1df2a0':'#2a6a3a');
-    });
-    EDGES.forEach(([a,b]) => {
-      const line = document.getElementById(`edge-${a}-${b}`);
-      if (!line) return;
-      const on = active.includes(a) && active.includes(b);
-      line.setAttribute('stroke', on?'#1df2a0':'#1a3a2a');
-      line.setAttribute('stroke-width', on?'0.9':'0.4');
-      line.setAttribute('filter', on?'url(#glow)':'');
-      line.setAttribute('stroke-dasharray', on?'2 1':'none');
-    });
+  function switchTab(tab) {
+    _currentTab = tab;
+    document.querySelectorAll('.tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.tab === tab));
+    document.querySelectorAll('.tab-content').forEach(c =>
+      c.classList.toggle('active', c.id === `tab-${tab}`));
+  }
+
+  function addEvent(event) {
+    const feed = document.getElementById('event-feed');
+    if (!feed) return;
+
+    const card = document.createElement('div');
+    card.className = 'event-card';
+    const time = event.time || new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+
+    let badge = '', body = '';
+
+    if (event.type === 'message' && event.data?.role === 'assistant') {
+      badge = '<span class="badge badge-msg">MSG</span>';
+      const preview = (event.data.content || '').substring(0, 80);
+      body = `<div class="event-body">${escHtml(preview)}${event.data.content?.length > 80 ? '…' : ''}</div>`;
+    } else if (event.type === 'thought') {
+      badge = '<span class="badge badge-think">THOUGHT</span>';
+      body = `<div class="think-box"><div class="think-txt">${escHtml(event.data?.content || '')}</div></div>`;
+    } else if (event.type === 'tool_call') {
+      badge = '<span class="badge badge-tool">TOOL</span>';
+      body = `<div class="tool-box">
+        <div class="tool-name">${escHtml(event.data?.tool || '')}</div>
+        <div class="tool-args">${escHtml(JSON.stringify(event.data?.args || {}, null, 2))}</div>
+      </div>`;
+    } else if (event.type === 'tool_result') {
+      badge = '<span class="badge badge-result">RESULT</span>';
+      body = `<div class="result-box">
+        <div class="result-lbl">${escHtml(event.data?.tool || '')}</div>
+        <div class="result-txt">${escHtml((event.data?.result || '').substring(0, 300))}</div>
+      </div>`;
+    } else if (event.type === 'memory') {
+      badge = '<span class="badge badge-mem">MEMORY</span>';
+      const hits = (event.data?.results || []).slice(0, 3);
+      body = `<div class="mem-box">
+        <div class="mem-query">↳ ${escHtml(event.data?.query || '')}</div>
+        ${hits.map(h => `<div class="mem-hit">${escHtml(h)}</div>`).join('')}
+      </div>`;
+    } else { return; }
+
+    card.innerHTML = `
+      <div class="event-top">${badge}<span class="event-time">${time}</span></div>
+      ${body}`;
+    feed.insertBefore(card, feed.firstChild);
+
+    // keep feed tidy
+    while (feed.children.length > 60) feed.removeChild(feed.lastChild);
   }
 
   function activeNodesFor(event) {
-    if (event.type==='message' && event.data?.role==='user')      return ['ears','brain'];
-    if (event.type==='message' && event.data?.role==='assistant') return ['brain','mouth'];
-    if (event.type==='memory')      return ['brain','memory'];
-    if (event.type==='tool_call')   return ['brain','tools'];
-    if (event.type==='tool_result') return ['tools','brain'];
-    if (event.type==='thought')     return ['brain'];
-    return ['brain'];
+    const map = {
+      message:    ['ears','brain','mouth'],
+      thought:    ['brain'],
+      tool_call:  ['brain','tools'],
+      tool_result:['tools','brain'],
+      memory:     ['brain','memory'],
+    };
+    return map[event.type] || [];
   }
 
-  return { togglePanel, switchTab, addEvent, buildMap, setActiveNodes, activeNodesFor };
+  function setActiveNodes(nodeIds) {
+    document.querySelectorAll('.neural-node').forEach(el => {
+      el.classList.toggle('active', nodeIds.includes(el.dataset.id));
+    });
+    document.querySelectorAll('.neural-edge').forEach(el => {
+      const [a, b] = [el.dataset.from, el.dataset.to];
+      el.classList.toggle('active', nodeIds.includes(a) && nodeIds.includes(b));
+    });
+  }
+
+  function buildMap() {
+    const svg = document.getElementById('neural-svg');
+    if (!svg) return;
+    svg.innerHTML = '';
+
+    // edges
+    EDGES.forEach(([a, b]) => {
+      const na = NODES[a], nb = NODES[b];
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', na.x); line.setAttribute('y1', na.y);
+      line.setAttribute('x2', nb.x); line.setAttribute('y2', nb.y);
+      line.setAttribute('stroke', '#0a2a12');
+      line.setAttribute('stroke-width', '0.8');
+      line.classList.add('neural-edge');
+      line.dataset.from = a; line.dataset.to = b;
+      svg.appendChild(line);
+    });
+
+    // nodes
+    Object.entries(NODES).forEach(([id, n]) => {
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.classList.add('neural-node');
+      g.dataset.id = id;
+
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', n.x); circle.setAttribute('cy', n.y); circle.setAttribute('r', '7');
+      circle.setAttribute('fill', '#010d04'); circle.setAttribute('stroke', '#0a3a1a');
+      circle.setAttribute('stroke-width', '1');
+
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', n.x); text.setAttribute('y', n.y + 14);
+      text.setAttribute('text-anchor', 'middle'); text.setAttribute('font-size', '4');
+      text.setAttribute('fill', '#1a4a2a'); text.setAttribute('font-family', 'Space Mono, monospace');
+      text.textContent = n.label;
+
+      g.appendChild(circle); g.appendChild(text);
+      svg.appendChild(g);
+    });
+
+    // inject active styles
+    const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    style.textContent = `
+      .neural-node.active circle { stroke: #00ff88; fill: #001a0a; filter: drop-shadow(0 0 4px #00ff8888); }
+      .neural-node.active text   { fill: #00ff88; }
+      .neural-edge.active        { stroke: #00ff4444; stroke-width: 1.5; }
+      .neural-node circle, .neural-edge { transition: all 0.3s; }
+    `;
+    svg.appendChild(style);
+  }
+
+  function escHtml(str) {
+    return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  return { togglePanel, switchTab, addEvent, activeNodesFor, setActiveNodes, buildMap };
 })();

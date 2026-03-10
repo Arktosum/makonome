@@ -40,8 +40,9 @@ def main():
     start_heartbeat(on_heartbeat_message)
     print(f"💓 Heartbeat active", flush=True)
 
-    # emit startup message
-    startup = f"Hey {USER_NAME}! I'm here. What's up?"
+    # generate aware wakeup message
+    from wakeup import generate_wakeup_message
+    startup = generate_wakeup_message()
     event_queue.put({
         "type": "message",
         "time": datetime.now().strftime("%H:%M:%S"),
@@ -69,22 +70,11 @@ def main():
         print(f"  {ASSISTANT_NAME} is online.")
         print(f"{'='*40}\n")
 
-        print("Input mode:")
-        print("  [1] Voice (microphone)")
-        print("  [2] Text (terminal)")
-        print("  [3] Dashboard only (browser at http://localhost:8765)")
-        choice = input("Choose (1/2/3): ").strip()
-        voice_mode = choice == "1"
-        dashboard_mode = choice == "3"
-
-        if not dashboard_mode:
-            print("\nOutput mode:")
-            print("  [1] Voice + Text")
-            print("  [2] Text only")
-            voice_output = input("Choose (1/2): ").strip() == "1"
-        else:
-            voice_output = False
-            print(f"\n  Open http://localhost:8765 in your browser!")
+        # default to dashboard mode locally — change to "1" or "2" for voice/text
+        voice_mode = False
+        dashboard_mode = True
+        voice_output = False
+        print(f"  Open http://localhost:8765 in your browser!")
 
         print(f"\n{'='*40}\n")
         print(f"{ASSISTANT_NAME}: {startup}")

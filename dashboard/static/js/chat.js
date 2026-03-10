@@ -7,13 +7,27 @@ const Chat = (() => {
     const wrap = document.createElement('div');
     wrap.className = `bubble-wrap ${role} fade-in`;
     const name = role === 'user' ? 'YOU' : 'MAKO';
+
+    const bubble = document.createElement('div');
+    bubble.className = `bubble ${role}`;
+    bubble.innerHTML = `<p>${renderMarkdown(content)}</p>`;
+
+    wrap.innerHTML = `<div class="bubble-name">${name}</div>`;
+    wrap.appendChild(bubble);
+    wrap.innerHTML += `<div class="bubble-time">${time || ''}</div>`;
+
+    // re-append bubble since innerHTML above would have wiped it
     wrap.innerHTML = `
       <div class="bubble-name">${name}</div>
-      <div class="bubble ${role}"><p>${renderMarkdown(content)}</p></div>
+      <div class="bubble ${role}" data-role="${role}"><p>${renderMarkdown(content)}</p></div>
       <div class="bubble-time">${time || ''}</div>`;
+
     document.getElementById('messages').appendChild(wrap);
     scrollToBottom();
-}
+
+    // return the actual bubble div so caller can attach click handlers
+    return wrap.querySelector('.bubble');
+  }
 
   function showThinking() {
     if (_thinkingEl) return;
@@ -62,18 +76,16 @@ const Chat = (() => {
     document.getElementById('msg-input').disabled = !enabled;
     document.getElementById('send-btn').disabled  = !enabled;
   }
+
   function renderMarkdown(str) {
     return String(str)
-        // escape html first
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        // bold
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
-        // line breaks
-        .replace(/\n\n/g, '</p><p>')
-        .replace(/\n/g, '<br/>')
-        // numbered lists
-        .replace(/^\d+\.\s(.+)/gm, '<div class="list-item">$1</div>');
-}
-  return { addBubble, showThinking, updateThinking, removeThinking, setInputEnabled ,renderMarkdown};
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
+      .replace(/\n\n/g, '</p><p>')
+      .replace(/\n/g, '<br/>')
+      .replace(/^\d+\.\s(.+)/gm, '<div class="list-item">$1</div>');
+  }
+
+  return { addBubble, showThinking, updateThinking, removeThinking, setInputEnabled, renderMarkdown };
 })();

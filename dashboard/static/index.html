@@ -7,10 +7,11 @@
     <link rel="stylesheet" href="/css/main.css" />
   </head>
   <body>
-    <!-- Topbar -->
+    <!-- TOPBAR -->
     <div class="topbar">
-      <div>
-        <span class="logo">MAKO <span>NEURAL INTERFACE</span></span>
+      <div style="display: flex; align-items: baseline; gap: 0">
+        <span class="logo">MAKO</span>
+        <span class="logo-sub">NEURAL INTERFACE</span>
       </div>
       <div class="topbar-right">
         <div class="status">
@@ -19,40 +20,46 @@
         </div>
         <div class="stats">
           <div class="stat">
-            <div class="stat-val" style="color: var(--green)" id="stat-msg">
+            <div
+              class="stat-val"
+              style="color: #00ff88; transition: transform 0.2s"
+              id="stat-msg"
+            >
               0
             </div>
             <div class="stat-lbl">MSG</div>
           </div>
           <div class="stat">
-            <div class="stat-val" style="color: var(--amber)" id="stat-tools">
+            <div
+              class="stat-val"
+              style="color: #ffaa00; transition: transform 0.2s"
+              id="stat-tools"
+            >
               0
             </div>
             <div class="stat-lbl">TOOLS</div>
           </div>
           <div class="stat">
-            <div class="stat-val" style="color: var(--cyan)" id="stat-mem">
+            <div
+              class="stat-val"
+              style="color: #00ddcc; transition: transform 0.2s"
+              id="stat-mem"
+            >
               0
             </div>
             <div class="stat-lbl">MEM</div>
           </div>
         </div>
+        <button class="toggle-btn" id="clear-btn" onclick="clearMemories()">
+          ⊘ CLEAR MEM
+        </button>
         <button class="toggle-btn" id="toggle-btn">◈ ACTIVITY</button>
       </div>
     </div>
 
-    <!-- Main -->
+    <!-- MAIN -->
     <div class="main">
-      <!-- Character Panel -->
-
-      <div class="character-panel" id="character-panel">
-        <div id="mako-char-container" style="width: 100%; height: 100%"></div>
-        <div class="character-status">
-          <div class="char-dot" id="char-dot"></div>
-          <span id="char-status-text">IDLE</span>
-        </div>
-      </div>
-      <!-- Chat -->
+      <!-- CHAT -->
       <div class="chat-area" id="chat-area">
         <div class="messages" id="messages"></div>
         <div class="input-bar">
@@ -66,7 +73,7 @@
         </div>
       </div>
 
-      <!-- Activity panel -->
+      <!-- ACTIVITY PANEL -->
       <div class="activity-panel" id="activity-panel">
         <div class="panel-tabs">
           <div
@@ -96,17 +103,153 @@
         </div>
       </div>
     </div>
+
+    <!-- PROMPT INSPECTOR MODAL -->
+    <div class="inspector-overlay" id="inspector-overlay">
+      <div class="inspector-modal">
+        <div class="inspector-header">
+          <div class="inspector-title">⬡ PROMPT INSPECTOR</div>
+          <div class="inspector-meta">
+            <div class="inspector-total" id="inspector-total"></div>
+            <button class="inspector-close" id="inspector-close">✕</button>
+          </div>
+        </div>
+        <div class="token-bar" id="token-bar"></div>
+        <div class="inspector-body" id="inspector-body"></div>
+        <div class="inspector-hint">
+          CLICK HEADER TO COLLAPSE · ESC TO CLOSE
+        </div>
+      </div>
+    </div>
+
     <script src="/js/ws.js"></script>
     <script src="/js/stats.js"></script>
     <script src="/js/activity.js"></script>
     <script src="/js/chat.js"></script>
     <script src="/js/voice.js"></script>
-    <script src="/js/mako_character.js"></script>
-    <script>
-      document.addEventListener("DOMContentLoaded", () => {
-        MakoCharacter.mount("mako-char-container");
 
-        // ── WebSocket events ──────────────────────────────────
+    <script>
+      // ── PROMPT INSPECTOR ────────────────────────────────────────────
+      const Inspector = (() => {
+        const _store = {};
+
+        const BAR_COLORS = {
+          blue: "#3b82f6",
+          purple: "#a855f7",
+          green: "#22c55e",
+          amber: "#f59e0b",
+          cyan: "#06b6d4",
+          red: "#ef4444",
+        };
+
+        function _tok(text) {
+          return Math.max(
+            1,
+            Math.round((text || "").split(/\s+/).filter(Boolean).length * 1.3),
+          );
+        }
+
+        function store(key, data) {
+          _store[key] = data;
+        }
+
+        function open(key) {
+          const data = _store[key];
+          if (!data) {
+            console.warn("[Inspector] no data for", key);
+            return;
+          }
+
+          const sections = (data.sections || []).map((s) => ({
+            ...s,
+            tokens: _tok(s.text),
+          }));
+          const total = sections.reduce((a, s) => a + s.tokens, 0);
+
+          // token bar
+          const bar = document.getElementById("token-bar");
+          bar.innerHTML = sections
+            .map((s) => {
+              const w = total > 0 ? ((s.tokens / total) * 100).toFixed(2) : 0;
+              return `<div class="token-seg" style="width:${w}%;background:${BAR_COLORS[s.color] || "#fff"}"></div>`;
+            })
+            .join("");
+
+          // total display
+          document.getElementById("inspector-total").innerHTML =
+            `TOTAL <span>${total.toLocaleString()}</span> TOKENS`;
+
+          // sections
+          const body = document.getElementById("inspector-body");
+          body.innerHTML = "";
+          sections.forEach((s, i) => {
+            const pct = total > 0 ? ((s.tokens / total) * 100).toFixed(1) : 0;
+            const div = document.createElement("div");
+            div.className = `prompt-section s-${s.color}`;
+            div.innerHTML = `
+        <div class="section-hdr" onclick="Inspector.toggle(${i})">
+          <div class="section-hdr-left">
+            <div class="section-dot"></div>
+            <span>${s.label}</span>
+          </div>
+          <div class="section-info">
+            <span class="section-tokens">${s.tokens.toLocaleString()} tok</span>
+            <span class="section-pct">${pct}%</span>
+            <span class="section-chev open" id="chev-${i}">▼</span>
+          </div>
+        </div>
+        <div class="section-body" id="sbody-${i}">${esc(s.text)}</div>`;
+            body.appendChild(div);
+          });
+
+          document.getElementById("inspector-overlay").classList.add("open");
+        }
+
+        function toggle(i) {
+          const b = document.getElementById(`sbody-${i}`);
+          const c = document.getElementById(`chev-${i}`);
+          const open = b.style.display !== "none";
+          b.style.display = open ? "none" : "block";
+          c.classList.toggle("open", !open);
+        }
+
+        function close() {
+          document.getElementById("inspector-overlay").classList.remove("open");
+        }
+
+        function esc(t) {
+          return String(t || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+        }
+
+        function hasData(key) {
+          return !!_store[key];
+        }
+
+        return { store, open, toggle, close, hasData };
+      })();
+
+      // close on backdrop / ESC
+      document
+        .getElementById("inspector-overlay")
+        .addEventListener("click", (e) => {
+          if (e.target === e.currentTarget) Inspector.close();
+        });
+      document
+        .getElementById("inspector-close")
+        .addEventListener("click", Inspector.close);
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") Inspector.close();
+      });
+
+      // ── MAIN ────────────────────────────────────────────────────────
+      document.addEventListener("DOMContentLoaded", () => {
+        let _lastUserMsg = null;
+
+        // ── WS EVENTS ──────────────────────────────────────────────
         WS.on("message", (event) => {
           if (event.data?.role === "user") return;
 
@@ -117,47 +260,41 @@
               minute: "2-digit",
               second: "2-digit",
             });
-            Chat.addBubble("mako", event.data.content, time);
+            const bubble = Chat.addBubble("mako", event.data.content, time);
+
+            // wire up inspector click
+            if (bubble && _lastUserMsg) {
+              bubble.classList.add("clickable");
+              // check after short delay to allow prompt_debug to arrive first
+              setTimeout(() => {
+                if (Inspector.hasData(_lastUserMsg)) {
+                  const key = _lastUserMsg;
+                  bubble.addEventListener("click", () => Inspector.open(key));
+                }
+              }, 500);
+            }
+
             Chat.setInputEnabled(true);
-
-            const mood = MakoCharacter.detectMood(event.data.content);
-            MakoCharacter.setMood(mood);
-            MakoCharacter.startSpeaking();
-            document.getElementById("char-dot").className = "char-dot speaking";
-            document.getElementById("char-status-text").textContent =
-              "SPEAKING";
-
-            const words = event.data.content.split(" ").length;
-            setTimeout(
-              () => {
-                MakoCharacter.stopSpeaking();
-                MakoCharacter.setMood("idle");
-                document.getElementById("char-dot").className = "char-dot";
-                document.getElementById("char-status-text").textContent =
-                  "IDLE";
-              },
-              Math.max(2000, words * 350),
-            );
+            Stats.update("message");
           }
 
           Activity.addEvent(event);
           Activity.setActiveNodes(Activity.activeNodesFor(event));
-          Stats.update(event.type);
+        });
+
+        WS.on("prompt_debug", (event) => {
+          if (event.data?.user_message) {
+            Inspector.store(event.data.user_message, event.data);
+          }
         });
 
         WS.on("thought", (event) => {
-          MakoCharacter.setMood("thinking");
-          document.getElementById("char-dot").className = "char-dot thinking";
-          document.getElementById("char-status-text").textContent = "THINKING";
           Chat.updateThinking(event.data?.content);
           Activity.addEvent(event);
           Activity.setActiveNodes(Activity.activeNodesFor(event));
         });
 
         WS.on("tool_call", (event) => {
-          MakoCharacter.setMood("thinking");
-          document.getElementById("char-dot").className = "char-dot thinking";
-          document.getElementById("char-status-text").textContent = "SEARCHING";
           Activity.addEvent(event);
           Activity.setActiveNodes(Activity.activeNodesFor(event));
           Stats.update("tool_call");
@@ -186,13 +323,14 @@
           Chat.setInputEnabled(true);
         });
 
-        // ── Send message ──────────────────────────────────────
+        // ── SEND MESSAGE ───────────────────────────────────────────
         function sendMessage() {
           const input = document.getElementById("msg-input");
           const text = input.value.trim();
           if (!text) return;
           input.value = "";
           input.style.height = "auto";
+          _lastUserMsg = text;
 
           const time = new Date().toLocaleTimeString("en-US", {
             hour: "2-digit",
@@ -231,13 +369,48 @@
             }
           });
 
-        // ── Voice init ────────────────────────────────────────
         Voice.init((transcript) => {
           document.getElementById("msg-input").value = transcript;
           sendMessage();
         });
 
-        // ── Init ─────────────────────────────────────────────
+        // ── CLEAR MEMORIES ───────────────────────────────────
+        window.clearMemories = async function () {
+          if (!confirm("Clear ALL memories? This cannot be undone.")) return;
+          const btn = document.getElementById("clear-btn");
+          btn.textContent = "⊘ CLEARING...";
+          btn.disabled = true;
+          try {
+            const res = await fetch("/api/clear-memories", { method: "POST" });
+            const data = await res.json();
+            if (data.ok) {
+              btn.textContent = "⊘ CLEARED";
+              btn.style.color = "var(--glow)";
+              btn.style.borderColor = "var(--glow)";
+              setTimeout(() => {
+                btn.textContent = "⊘ CLEAR MEM";
+                btn.style.color = "";
+                btn.style.borderColor = "";
+                btn.disabled = false;
+              }, 2000);
+            } else {
+              btn.textContent = "⊘ FAILED";
+              btn.style.color = "var(--red)";
+              setTimeout(() => {
+                btn.textContent = "⊘ CLEAR MEM";
+                btn.style.color = "";
+                btn.disabled = false;
+              }, 2000);
+            }
+          } catch (e) {
+            btn.textContent = "⊘ ERROR";
+            setTimeout(() => {
+              btn.textContent = "⊘ CLEAR MEM";
+              btn.disabled = false;
+            }, 2000);
+          }
+        };
+
         Activity.buildMap();
         Activity.setActiveNodes(["brain"]);
         WS.connect();

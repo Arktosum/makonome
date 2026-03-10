@@ -1,55 +1,43 @@
-// js/voice.js — browser microphone using Web Speech API
+// js/voice.js — browser speech recognition
 const Voice = (() => {
   let _recognition = null;
-  let _isRecording = false;
-
-  function isSupported() {
-    return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
-  }
+  let _active = false;
+  let _onResult = null;
 
   function init(onResult) {
-    if (!isSupported()) {
-      console.warn('Web Speech API not supported in this browser');
-      document.getElementById('mic-btn').style.display = 'none';
-      return;
-    }
-
+    _onResult = onResult;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { console.warn('[Voice] Speech recognition not supported'); return; }
     _recognition = new SR();
-    _recognition.continuous = false;
-    _recognition.interimResults = false;
     _recognition.lang = 'en-US';
+    _recognition.interimResults = false;
+    _recognition.maxAlternatives = 1;
 
     _recognition.onresult = (e) => {
       const transcript = e.results[0][0].transcript;
-      onResult(transcript);
+      _setRecording(false);
+      if (_onResult) _onResult(transcript);
     };
 
-    _recognition.onend = () => {
-      _isRecording = false;
-      document.getElementById('mic-btn').classList.remove('recording');
-      document.getElementById('mic-btn').textContent = '🎤';
-    };
-
-    _recognition.onerror = (e) => {
-      console.error('Speech recognition error:', e.error);
-      _isRecording = false;
-      document.getElementById('mic-btn').classList.remove('recording');
-      document.getElementById('mic-btn').textContent = '🎤';
-    };
+    _recognition.onerror = () => _setRecording(false);
+    _recognition.onend   = () => _setRecording(false);
   }
 
   function toggle() {
     if (!_recognition) return;
-    if (_isRecording) {
+    if (_active) {
       _recognition.stop();
+      _setRecording(false);
     } else {
-      _isRecording = true;
-      document.getElementById('mic-btn').classList.add('recording');
-      document.getElementById('mic-btn').textContent = '⏹';
       _recognition.start();
+      _setRecording(true);
     }
   }
 
-  return { init, toggle, isSupported };
+  function _setRecording(state) {
+    _active = state;
+    document.getElementById('mic-btn')?.classList.toggle('recording', state);
+  }
+
+  return { init, toggle };
 })();
