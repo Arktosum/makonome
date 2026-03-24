@@ -6,3 +6,5 @@ python-dotenv
 ddgs
 requests
 fastembed
+gunicorn
+gevent

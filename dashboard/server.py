@@ -118,11 +118,18 @@ def _keepalive():
             for client in dead:
                 _clients.remove(client)
 
-
-    
 def start_server():
     threading.Thread(target=_broadcaster, daemon=True).start()
     threading.Thread(target=_keepalive, daemon=True).start()
     port = int(os.environ.get("PORT", 8765))
     print(f"📊 Dashboard on port {port}", flush=True)
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+
+    if os.environ.get("RENDER"):
+        # on Render, Gunicorn manages the server
+        # just start background threads and block
+        import time
+        while True:
+            time.sleep(60)
+    else:
+        app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+        
