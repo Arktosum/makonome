@@ -50,13 +50,15 @@ def main():
     })
 
     if IS_CLOUD:
-        # ── Cloud mode ────────────────────────────────────────
-        print(f"☁️  Running in cloud mode — dashboard only", flush=True)
-        print(f"\n{'='*40}")
-        print(f"  {ASSISTANT_NAME} is online.")
-        print(f"{'='*40}\n")
-        # start_server blocks forever — that's our entire main loop
-        start_server()
+        from dashboard.server import on_startup
+        set_think_fn(think)
+        start_heartbeat(on_heartbeat_message)
+        on_startup()
+        print("☁️  Running in cloud mode — Gunicorn serving", flush=True)
+        # block forever — Gunicorn handles HTTP
+        import time
+        while True:
+            time.sleep(60)
 
     else:
         # ── Local mode ────────────────────────────────────────
