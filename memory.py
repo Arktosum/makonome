@@ -1,6 +1,6 @@
-# memory.py — Supabase pgvector backend
+# memory.py — Supabase backend with semantic + recency retrieval and notes system
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from fastembed import TextEmbedding
 from supabase import create_client
@@ -8,8 +8,6 @@ from supabase import create_client
 load_dotenv()
 
 # ── Embedding model ───────────────────────────────────────────────────────────
-# fastembed — lightweight ONNX-based, no PyTorch needed
-# bge-small-en-v1.5 = 384 dimensions, matches our Supabase vector column
 print("📥 Loading embedding model...", flush=True)
 _embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
 print("✅ Embedding model ready", flush=True)
@@ -17,27 +15,21 @@ print("✅ Embedding model ready", flush=True)
 # ── Supabase client ───────────────────────────────────────────────────────────
 _sb = None
 
-
 def _get_client():
     global _sb
     if _sb is None:
-        url = os.getenv("VECTORDB_SUPABASE_URL")
-        key = os.getenv("VECTORDB_SUPABASE_ANON_KEY")
+        url = os.getenv("VECTORDB_SUPABASE_URL") or os.getenv("SUPABASE_URL")
+        key = os.getenv("VECTORDB_SUPABASE_ANON_KEY") or os.getenv("SUPABASE_ANON_KEY")
         if not url or not key:
-            raise ValueError(
-                "VECTORDB_SUPABASE_URL and VECTORDB_SUPABASE_ANON_KEY must be set in .env")
+            raise ValueError("Supabase credentials not set in .env")
         _sb = create_client(url, key)
     return _sb
 
-# ── Core functions ────────────────────────────────────────────────────────────
 
+# ── Core memory functions ─────────────────────────────────────────────────────
 
 def save_memory(role: str, content: str):
-    """
-    Embed and save a single conversation turn to Supabase.
-    role: 'user' or 'assistant'
-    content: what was said
-    """
+    """Embed and save a conversation turn."""
     try:
         embedding = list(_embedder.embed([content]))[0].tolist()
         _get_client().table("memories").insert({
@@ -50,29 +42,49 @@ def save_memory(role: str, content: str):
         print(f"⚠️  Memory save failed: {e}", flush=True)
 
 
-def retrieve_memories(query: str, n_results: int = 10) -> list[str]:
+def retrieve_memories(query: str, n_semantic: int = 5, n_recent: int = 3) -> list[str]:
     """
-    Semantic search — find the most relevant past memories for this query.
-    Returns a list of formatted strings ready to inject into the prompt.
+    Retrieve memories using a split strategy:
+    - Top N semantically similar to the query
+    - Top M most recent regardless of similarity
+    Merged and deduplicated.
     """
     try:
-        query_embedding = list(_embedder.embed([query]))[0].tolist()
+        sb = _get_client()
+        seen_ids = set()
+        results = []
 
-        # pgvector cosine similarity search via Supabase RPC
-        result = _get_client().rpc("match_memories", {
+        # ── Semantic retrieval ──────────────────────────────
+        query_embedding = list(_embedder.embed([query]))[0].tolist()
+        semantic = sb.rpc("match_memories", {
             "query_embedding": query_embedding,
-            "match_count":     n_results,
+            "match_count":     n_semantic,
         }).execute()
 
-        if not result.data:
-            return []
+        for row in (semantic.data or []):
+            seen_ids.add(row.get("id"))
+            ts = (row.get("ts") or row.get("timestamp") or "")[:10]
+            results.append(f"[{row['role']} - {ts}]: {row['content']}")
 
-        formatted = []
-        for row in result.data:
+        # ── Recency retrieval ───────────────────────────────
+        recent = sb.table("memories") \
+            .select("id, role, content, timestamp") \
+            .order("timestamp", desc=True) \
+            .limit(n_recent * 2) \
+            .execute()
+
+        added = 0
+        for row in (recent.data or []):
+            if added >= n_recent:
+                break
+            if row["id"] in seen_ids:
+                continue
+            seen_ids.add(row["id"])
             ts = row.get("timestamp", "")[:10]
-            formatted.append(f"[{row['role']} - {ts}]: {row['content']}")
+            results.append(f"[{row['role']} - {ts} ★recent]: {row['content']}")
+            added += 1
 
-        return formatted
+        return results
 
     except Exception as e:
         print(f"⚠️  Memory retrieve failed: {e}", flush=True)
@@ -80,115 +92,152 @@ def retrieve_memories(query: str, n_results: int = 10) -> list[str]:
 
 
 def clear_memories():
-    """Wipe all memories. Used by utils/clear_memory.py"""
+    """Wipe all episodic memories."""
     try:
-        _get_client().table("memories").delete().neq(
-            "id", "00000000-0000-0000-0000-000000000000").execute()
+        _get_client().table("memories") \
+            .delete() \
+            .neq("id", "00000000-0000-0000-0000-000000000000") \
+            .execute()
         print("✅ All memories cleared.")
     except Exception as e:
         print(f"⚠️  Clear failed: {e}", flush=True)
 
 
-# ── Facts (Layer 1 — core identity) ──────────────────────────────────────────
+# ── Notes system ──────────────────────────────────────────────────────────────
 
-def save_fact(category: str, fact: str, confidence: int = 3, expires_days: int = None):
+def get_auto_inject_notes() -> str:
     """
-    Save or update a core fact about the user.
-    expires_days=None means permanent (Layer 1 identity).
-    expires_days=7 means current context (Layer 2).
-    """
-    from datetime import timedelta
-    try:
-        sb = _get_client()
-
-        expires_at = None
-        if expires_days is not None:
-            expires_at = (datetime.now() +
-                          timedelta(days=expires_days)).isoformat()
-
-        # check if a similar fact exists in this category
-        existing = sb.table("facts") \
-            .select("id, fact") \
-            .eq("category", category) \
-            .execute()
-
-        # simple dedup — if first 40 chars match, treat as same fact and update
-        for row in (existing.data or []):
-            if row["fact"][:40].lower() == fact[:40].lower():
-                sb.table("facts").update({
-                    "fact":       fact,
-                    "confidence": confidence,
-                    "expires_at": expires_at,
-                    "updated_at": datetime.now().isoformat(),
-                }).eq("id", row["id"]).execute()
-                layer = "context" if expires_days else "fact"
-                print(
-                    f"📝 {layer.title()} updated [{category}]: {fact[:60]}", flush=True)
-                return
-
-        # insert new fact
-        sb.table("facts").insert({
-            "category":   category,
-            "fact":       fact,
-            "confidence": confidence,
-            "expires_at": expires_at,
-            "updated_at": datetime.now().isoformat(),
-        }).execute()
-        layer = "Context" if expires_days else "Fact"
-        print(f"📝 {layer} saved [{category}]: {fact[:60]}", flush=True)
-
-    except Exception as e:
-        print(f"⚠️  Fact save failed: {e}", flush=True)
-
-
-def get_all_facts() -> str:
-    """
-    Retrieve all non-expired facts grouped by layer and category.
-    Layer 1 = permanent facts (expires_at is null)
-    Layer 2 = current context (expires_at is set, not yet expired)
-    Returns a formatted string ready to inject into the system prompt.
+    Retrieve all notes marked auto_inject=true.
+    These are always included in every system prompt.
+    Returns formatted string ready to inject.
     """
     try:
-        now = datetime.now().isoformat()
-        result = _get_client().table("facts") \
-            .select("category, fact, confidence, expires_at") \
-            .order("category") \
-            .order("confidence", desc=True) \
+        result = _get_client().table("notes") \
+            .select("name, content") \
+            .eq("auto_inject", True) \
+            .order("name") \
             .execute()
 
         if not result.data:
             return ""
 
-        permanent = {}   # Layer 1 — no expiry
-        context = {}   # Layer 2 — has expiry, not yet expired
-
+        sections = []
         for row in result.data:
-            # skip expired rows
-            if row["expires_at"] and row["expires_at"] < now:
-                continue
+            sections.append(f"=== {row['name'].upper().replace('_', ' ')} ===\n{row['content']}")
 
-            cat = row["category"].upper()
-            if row["expires_at"] is None:
-                permanent.setdefault(cat, []).append(row["fact"])
-            else:
-                context.setdefault(cat, []).append(row["fact"])
-
-        lines = []
-
-        if permanent:
-            lines.append("CORE IDENTITY:")
-            for cat, facts in permanent.items():
-                for f in facts:
-                    lines.append(f"  [{cat}] {f}")
-
-        if context:
-            lines.append("CURRENT CONTEXT (recent, time-sensitive):")
-            for cat, facts in context.items():
-                for f in facts:
-                    lines.append(f"  [{cat}] {f}")
-
-        return "\n".join(lines)
+        return "\n\n".join(sections)
 
     except Exception as e:
-        print(f"⚠️  Facts retrieve failed: {e}", flush=True)
+        print(f"⚠️  Auto-inject notes failed: {e}", flush=True)
         return ""
+
+
+def get_note(name: str) -> str | None:
+    """Read a specific note by name. Returns content or None if not found."""
+    try:
+        result = _get_client().table("notes") \
+            .select("content") \
+            .eq("name", name) \
+            .limit(1) \
+            .execute()
+
+        if result.data:
+            return result.data[0]["content"]
+        return None
+
+    except Exception as e:
+        print(f"⚠️  Get note failed: {e}", flush=True)
+        return None
+
+
+def write_note(name: str, content: str, category: str = "general", auto_inject: bool = False):
+    """
+    Create or fully overwrite a note.
+    Used by Mako when she decides to create/update a note.
+    """
+    try:
+        sb = _get_client()
+
+        existing = sb.table("notes") \
+            .select("id") \
+            .eq("name", name) \
+            .limit(1) \
+            .execute()
+
+        if existing.data:
+            sb.table("notes").update({
+                "content":    content,
+                "updated_at": datetime.now().isoformat(),
+            }).eq("name", name).execute()
+            print(f"📝 Note updated: {name}", flush=True)
+        else:
+            sb.table("notes").insert({
+                "name":        name,
+                "content":     content,
+                "category":    category,
+                "auto_inject": auto_inject,
+                "updated_at":  datetime.now().isoformat(),
+            }).execute()
+            print(f"📝 Note created: {name}", flush=True)
+
+    except Exception as e:
+        print(f"⚠️  Write note failed: {e}", flush=True)
+
+
+def list_notes() -> list[str]:
+    """Return list of all note names Mako can access."""
+    try:
+        result = _get_client().table("notes") \
+            .select("name, category, auto_inject, updated_at") \
+            .order("category") \
+            .order("name") \
+            .execute()
+
+        if not result.data:
+            return []
+
+        lines = []
+        for row in result.data:
+            inject = "★" if row["auto_inject"] else " "
+            ts = row.get("updated_at", "")[:10]
+            lines.append(f"{inject} [{row['category']}] {row['name']} (updated {ts})")
+
+        return lines
+
+    except Exception as e:
+        print(f"⚠️  List notes failed: {e}", flush=True)
+        return []
+
+
+def get_relevant_notes(query: str) -> list[dict]:
+    """
+    Scan note names and categories for relevance to the query.
+    Simple keyword matching — returns list of {name, content} dicts.
+    Called by brain.py to optionally inject topic notes.
+    """
+    try:
+        result = _get_client().table("notes") \
+            .select("name, category, content") \
+            .eq("auto_inject", False) \
+            .execute()
+
+        if not result.data:
+            return []
+
+        query_lower = query.lower()
+        relevant = []
+
+        for row in result.data:
+            name_words = row["name"].replace("_", " ").lower()
+            # check if any word in the note name appears in the query
+            if any(word in query_lower for word in name_words.split() if len(word) > 3):
+                relevant.append({
+                    "name":    row["name"],
+                    "content": row["content"],
+                })
+
+        return relevant
+
+    except Exception as e:
+        print(f"⚠️  Relevant notes failed: {e}", flush=True)
+        return []
