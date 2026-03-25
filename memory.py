@@ -1,6 +1,7 @@
 # memory.py — Supabase backend with semantic + recency retrieval and notes system
 import os
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from fastembed import TextEmbedding
 from supabase import create_client
@@ -36,7 +37,7 @@ def save_memory(role: str, content: str):
             "role":      role,
             "content":   content,
             "embedding": embedding,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
         }).execute()
     except Exception as e:
         print(f"⚠️  Memory save failed: {e}", flush=True)
@@ -167,7 +168,7 @@ def write_note(name: str, content: str, category: str = "general", auto_inject: 
         if existing.data:
             sb.table("notes").update({
                 "content":    content,
-                "updated_at": datetime.now().isoformat(),
+                "updated_at": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
             }).eq("name", name).execute()
             print(f"📝 Note updated: {name}", flush=True)
         else:
@@ -176,7 +177,7 @@ def write_note(name: str, content: str, category: str = "general", auto_inject: 
                 "content":     content,
                 "category":    category,
                 "auto_inject": auto_inject,
-                "updated_at":  datetime.now().isoformat(),
+                "updated_at":  datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
             }).execute()
             print(f"📝 Note created: {name}", flush=True)
 

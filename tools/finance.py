@@ -1,6 +1,7 @@
 # tools/finance.py
 import os
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from supabase import create_client
 
@@ -48,7 +49,7 @@ def get_spending_summary(days: int = 30) -> str:
     """Get total income and expenses for the last N days."""
     try:
         sb = _get_client()
-        since = (datetime.now() - timedelta(days=days)).isoformat()
+        since = (datetime.now(ZoneInfo("Asia/Kolkata")) - timedelta(days=days)).isoformat()
 
         result = sb.table("transactions") \
             .select("type, amount") \
@@ -80,7 +81,7 @@ def get_spending_by_category(days: int = 30) -> str:
     """Get expense breakdown by category for the last N days."""
     try:
         sb = _get_client()
-        since = (datetime.now() - timedelta(days=days)).isoformat()
+        since = (datetime.now(ZoneInfo("Asia/Kolkata")) - timedelta(days=days)).isoformat()
 
         result = sb.table("transactions") \
             .select("amount, categories(name)") \
@@ -186,7 +187,7 @@ def get_top_merchants(days: int = 30, limit: int = 5) -> str:
     """Get top merchants by spending."""
     try:
         sb = _get_client()
-        since = (datetime.now() - timedelta(days=days)).isoformat()
+        since = (datetime.now(ZoneInfo("Asia/Kolkata")) - timedelta(days=days)).isoformat()
 
         result = sb.table("transactions") \
             .select("amount, merchants(name)") \

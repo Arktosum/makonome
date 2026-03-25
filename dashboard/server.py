@@ -3,6 +3,7 @@ import json
 import threading
 from queue import Queue
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from flask import Flask, send_from_directory
 from flask_sock import Sock
 import os
@@ -90,7 +91,7 @@ def handle(ws):
 def _broadcaster():
     while True:
         event = event_queue.get()
-        event.setdefault("time", datetime.now().strftime("%H:%M:%S"))
+        event.setdefault("time", datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M:%S"))
         message = json.dumps(event)
         with _clients_lock:
             dead = []

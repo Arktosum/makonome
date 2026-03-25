@@ -3,6 +3,7 @@ import os
 import threading
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from brain import think
 from config import ASSISTANT_NAME, USER_NAME
 from dashboard.server import set_think_fn, start_server, event_queue
@@ -16,7 +17,7 @@ def on_heartbeat_message(text: str):
     """Called by heartbeat when Mako wants to say something unprompted."""
     event_queue.put({
         "type": "message",
-        "time": datetime.now().strftime("%H:%M:%S"),
+        "time": datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M:%S"),
         "data": {"role": "assistant", "content": text}
     })
 
@@ -45,7 +46,7 @@ def main():
     startup = generate_wakeup_message()
     event_queue.put({
         "type": "message",
-        "time": datetime.now().strftime("%H:%M:%S"),
+        "time": datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M:%S"),
         "data": {"role": "assistant", "content": startup}
     })
 
@@ -58,7 +59,7 @@ def main():
         startup = generate_wakeup_message()
         event_queue.put({
             "type": "message",
-            "time": datetime.now().strftime("%H:%M:%S"),
+            "time": datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M:%S"),
             "data": {"role": "assistant", "content": startup}
         })
         # this blocks forever — Flask handles everything

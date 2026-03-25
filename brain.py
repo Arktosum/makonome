@@ -3,6 +3,7 @@ import os
 import json
 import threading
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from collections import deque
 from groq import Groq
 from dotenv import load_dotenv
@@ -17,10 +18,10 @@ load_dotenv()
 _groq = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # ── Session tracking ──────────────────────────────────────────────────────────
-_session_start = datetime.now()
+_session_start = datetime.now(ZoneInfo("Asia/Kolkata"))
 
 def get_session_context() -> str:
-    delta = datetime.now() - _session_start
+    delta = datetime.now(ZoneInfo("Asia/Kolkata")) - _session_start
     s = int(delta.total_seconds())
     if s < 60: return "just came online"
     elif s < 3600: m = s//60; return f"online for {m} minute{'s' if m!=1 else ''}"
@@ -172,7 +173,7 @@ def _emit(event: dict):
     """Send event to dashboard via the thread-safe queue."""
     try:
         from dashboard.server import event_queue
-        event.setdefault("time", datetime.now().strftime("%H:%M:%S"))
+        event.setdefault("time", datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M:%S"))
         event_queue.put(event)
     except Exception as e:
         print(f"⚠️  Emit error: {e}", flush=True)
@@ -328,7 +329,7 @@ def think(user_message: str) -> str:
     relevant_notes = get_relevant_notes(user_message)
 
     # ── 4. build system prompt ────────────────────────────────
-    current_time = datetime.now().strftime("%A, %B %d %Y, %I:%M %p")
+    current_time = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%A, %B %d %Y, %I:%M %p")
     session_ctx  = get_session_context()
 
     system = SYSTEM_PROMPT + TOOLS_PROMPT

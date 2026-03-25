@@ -5,6 +5,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/websocket_service.dart';
 
+
 // ── Message model ─────────────────────────────────────────────────────────────
 enum MessageRole { user, mako }
 
@@ -144,6 +145,7 @@ class MakoProvider extends ChangeNotifier {
           _debugStore.containsKey(_lastUserMessage)) {
         debug = _debugStore[_lastUserMessage];
       }
+      
 
       _messages.add(ChatMessage(
         id: DateTime.now().millisecondsSinceEpoch.toString(),

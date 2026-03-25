@@ -1,6 +1,7 @@
 # wakeup.py — generates Mako's aware startup message
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from groq import Groq
 from dotenv import load_dotenv
 from config import GROQ_MODEL, WAKEUP_PROMPT, USER_NAME, ASSISTANT_NAME
@@ -30,7 +31,7 @@ def _get_last_conversation_time() -> tuple[datetime | None, str]:
         last_dt = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
         # make it timezone-naive for comparison
         last_dt_naive = last_dt.replace(tzinfo=None)
-        now = datetime.now()
+        now = datetime.now(ZoneInfo("Asia/Kolkata"))
         delta = now - last_dt_naive
 
         # human readable
@@ -97,7 +98,7 @@ def generate_wakeup_message() -> str:
     """
     print("💭 Generating wakeup message...", flush=True)
 
-    now = datetime.now()
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
     current_time = now.strftime("%A, %B %d %Y, %I:%M %p")
     _, last_seen = _get_last_conversation_time()
     recent_memories = _get_recent_memories()

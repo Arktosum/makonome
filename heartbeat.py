@@ -4,6 +4,7 @@ import threading
 import random
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from groq import Groq
 from dotenv import load_dotenv
 from config import GROQ_MODEL, SYSTEM_PROMPT, ASSISTANT_NAME, USER_NAME, HEARTBEAT_PROMPT
@@ -16,7 +17,7 @@ MIN_SILENCE_MINUTES = 10   # won't interrupt if you just talked
 MAX_SILENCE_MINUTES = 30   # won't go longer than this without checking in
 
 # track last conversation time so we don't interrupt mid-chat
-_last_activity = datetime.now()
+_last_activity = datetime.now(ZoneInfo("Asia/Kolkata"))
 _lock = threading.Lock()
 
 
@@ -24,12 +25,12 @@ def update_activity():
     """Call this whenever user or Mako sends a message."""
     global _last_activity
     with _lock:
-        _last_activity = datetime.now()
+        _last_activity = datetime.now(ZoneInfo("Asia/Kolkata"))
 
 
 def _minutes_since_activity():
     with _lock:
-        delta = datetime.now() - _last_activity
+        delta = datetime.now(ZoneInfo("Asia/Kolkata")) - _last_activity
         return delta.total_seconds() / 60
 
 
@@ -40,14 +41,14 @@ def _should_speak() -> str | None:
     """
     from memory import retrieve_memories
 
-    current_time = datetime.now().strftime("%A, %B %d %Y, %I:%M %p")
+    current_time = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%A, %B %d %Y, %I:%M %p")
     silence_mins = _minutes_since_activity()
     if silence_mins < 60:
         silence_str = f"{int(silence_mins)} minutes"
     else:
         silence_str = f"{int(silence_mins // 60)} hours"
 
-    query = f"time of day {datetime.now().strftime('%H:%M')} {USER_NAME} recent activities"
+    query = f"time of day {datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%H:%M')} {USER_NAME} recent activities"
     memories = retrieve_memories(query)
     memory_block = "\n".join(
         memories) if memories else "No specific memories yet."
