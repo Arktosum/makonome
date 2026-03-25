@@ -173,7 +173,7 @@ def _emit(event: dict):
     """Send event to dashboard via the thread-safe queue."""
     try:
         from dashboard.server import event_queue
-        event.setdefault("time", datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M:%S"))
+        event.setdefault("time", datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S"))
         event_queue.put(event)
     except Exception as e:
         print(f"⚠️  Emit error: {e}", flush=True)

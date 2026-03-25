@@ -7,59 +7,31 @@ from zoneinfo import ZoneInfo
 from brain import think
 from config import ASSISTANT_NAME, USER_NAME
 from dashboard.server import set_think_fn, start_server, event_queue
-from heartbeat import start_heartbeat, update_activity
 
 # ── Environment detection ─────────────────────────────────────────────────────
 IS_CLOUD = os.environ.get("RENDER") is not None
-
-
-def on_heartbeat_message(text: str):
-    """Called by heartbeat when Mako wants to say something unprompted."""
-    event_queue.put({
-        "type": "message",
-        "time": datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M:%S"),
-        "data": {"role": "assistant", "content": text}
-    })
-
-    # speak locally only
-    if not IS_CLOUD:
-        try:
-            from voice.mouth import speak
-            speak(text)
-        except Exception as e:
-            print(f"💓 TTS error: {e}", flush=True)
-
-    from memory import save_memory
-    save_memory("assistant", f"[unprompted] {text}")
 
 
 def main():
     # register think function with dashboard
     set_think_fn(think)
 
-    # start heartbeat
-    start_heartbeat(on_heartbeat_message)
-    print(f"💓 Heartbeat active", flush=True)
-
     # generate aware wakeup message
     from wakeup import generate_wakeup_message
     startup = generate_wakeup_message()
     event_queue.put({
         "type": "message",
-        "time": datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M:%S"),
+        "time": datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S"),
         "data": {"role": "assistant", "content": startup}
     })
 
     if IS_CLOUD:
         print("☁️  Running in cloud mode", flush=True)
         set_think_fn(think)
-        start_heartbeat(on_heartbeat_message)
         # emit startup message
-        from wakeup import generate_wakeup_message
-        startup = generate_wakeup_message()
         event_queue.put({
             "type": "message",
-            "time": datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M:%S"),
+            "time": datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S"),
             "data": {"role": "assistant", "content": startup}
         })
         # this blocks forever — Flask handles everything
@@ -108,7 +80,6 @@ def main():
                 if not user_input:
                     continue
 
-                update_activity()
 
                 if any(word in user_input.lower() for word in ["goodbye", "bye mako", "shut down", "exit"]):
                     farewell = f"Okay, talk soon {USER_NAME}! I'll remember everything."
@@ -121,8 +92,6 @@ def main():
                     print(f"\n{USER_NAME}: {user_input}")
 
                 response = think(user_input)
-                update_activity()
-
                 print(f"\n{ASSISTANT_NAME}: {response}\n")
                 if voice_output:
                     speak(response)

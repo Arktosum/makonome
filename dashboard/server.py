@@ -91,7 +91,7 @@ def handle(ws):
 def _broadcaster():
     while True:
         event = event_queue.get()
-        event.setdefault("time", datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M:%S"))
+        event.setdefault("time", datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S"))
         message = json.dumps(event)
         with _clients_lock:
             dead = []
