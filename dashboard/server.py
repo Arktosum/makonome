@@ -130,26 +130,5 @@ def start_server():
     print(f"📊 Dashboard on port {port}", flush=True)
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
-# Gunicorn calls this on worker startup
-def post_fork(server, worker):
-    on_startup()
-    
-if os.environ.get("RENDER"):
-    import sys
-    # delay import to avoid circular imports
-    def _cloud_init():
-        import time
-        time.sleep(2)  # wait for Gunicorn to finish setup
-        try:
-            from brain import think
-            from main import on_heartbeat_message
-            from heartbeat import start_heartbeat
-            set_think_fn(think)
-            start_heartbeat(on_heartbeat_message)
-            on_startup()
-            print("☁️  Cloud init complete", flush=True)
-        except Exception as e:
-            print(f"⚠️  Cloud init failed: {e}", flush=True)
-    threading.Thread(target=_cloud_init, daemon=True).start()
-    
+
     

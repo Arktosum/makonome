@@ -50,15 +50,19 @@ def main():
     })
 
     if IS_CLOUD:
-        from dashboard.server import on_startup
+        print("☁️  Running in cloud mode", flush=True)
         set_think_fn(think)
         start_heartbeat(on_heartbeat_message)
-        on_startup()
-        print("☁️  Running in cloud mode — Gunicorn serving", flush=True)
-        # block forever — Gunicorn handles HTTP
-        import time
-        while True:
-            time.sleep(60)
+        # emit startup message
+        from wakeup import generate_wakeup_message
+        startup = generate_wakeup_message()
+        event_queue.put({
+            "type": "message",
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "data": {"role": "assistant", "content": startup}
+        })
+        # this blocks forever — Flask handles everything
+        start_server()
 
     else:
         # ── Local mode ────────────────────────────────────────
