@@ -7,4 +7,3 @@ ddgs
 requests
 fastembed
 gunicorn
-gevent
