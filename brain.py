@@ -179,7 +179,7 @@ def _emit(event: dict):
         print(f"⚠️  Emit error: {e}", flush=True)
 
 # ── LLM call ─────────────────────────────────────────────────────────────────
-def _llm(messages: list, max_tokens: int = 1024, temperature: float = 0.7) -> str:
+def _llm(messages: list, max_tokens: int = 1024, temperature: float = 1.0) -> str:
     response = _groq.chat.completions.create(
         model=GROQ_MODEL,
         messages=messages,
