@@ -1,6 +1,12 @@
 # tools/weather.py
 import requests
+from tools.registry import tool
 
+
+@tool(
+    description="Get current weather for a city.",
+    params={"city": {"type": "string", "description": "city name"}},
+)
 def get_weather(city: str) -> str:
     """
     Get current weather using wttr.in — completely free, no API key needed.

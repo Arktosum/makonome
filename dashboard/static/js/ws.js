@@ -23,7 +23,8 @@ const WS = (() => {
   function connect() {
     if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    _ws = new WebSocket(`${proto}//${location.host}/ws`);
+    // pass ?token=... through so MAKO_DASH_TOKEN auth works
+    _ws = new WebSocket(`${proto}//${location.host}/ws${location.search}`);
 
     _ws.onopen = () => {
       console.log('[WS] connected');

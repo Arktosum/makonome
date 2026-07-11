@@ -63,6 +63,13 @@ const Activity = (() => {
         <div class="result-lbl">${escHtml(event.data?.tool || '')}</div>
         <div class="result-txt">${escHtml((event.data?.result || '').substring(0, 300))}</div>
       </div>`;
+    } else if (event.type === 'heartbeat') {
+      badge = '<span class="badge badge-think">💓 HB</span>';
+      const d = event.data || {};
+      const txt = d.decision === 'spoke' ? `spoke: ${d.message || ''}`
+                : d.decision === 'reflected' ? `🪞 ${d.message || 'reflection ran'}`
+                : 'checked in silently — nothing worth saying';
+      body = `<div class="think-box"><div class="think-txt">${escHtml(txt)}</div></div>`;
     } else if (event.type === 'memory') {
       badge = '<span class="badge badge-mem">MEMORY</span>';
       const hits = (event.data?.results || []).slice(0, 3);
@@ -88,6 +95,7 @@ const Activity = (() => {
       tool_call:  ['brain','tools'],
       tool_result:['tools','brain'],
       memory:     ['brain','memory'],
+      heartbeat:  ['brain','mouth'],
     };
     return map[event.type] || [];
   }

@@ -1,9 +1,12 @@
 flask
 flask-sock
 groq
+openai
+anthropic
 supabase
 python-dotenv
 ddgs
 requests
 fastembed
 gunicorn
+tzdata

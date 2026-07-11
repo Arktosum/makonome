@@ -305,6 +305,11 @@
           Activity.setActiveNodes(Activity.activeNodesFor(event));
         });
 
+        WS.on("heartbeat", (event) => {
+          Activity.addEvent(event);
+          Activity.setActiveNodes(Activity.activeNodesFor(event));
+        });
+
         WS.on("memory", (event) => {
           Activity.addEvent(event);
           Activity.setActiveNodes(Activity.activeNodesFor(event));
@@ -381,7 +386,7 @@
           btn.textContent = "⊘ CLEARING...";
           btn.disabled = true;
           try {
-            const res = await fetch("/api/clear-memories", { method: "POST" });
+            const res = await fetch(`/api/clear-memories${location.search}`, { method: "POST" });
             const data = await res.json();
             if (data.ok) {
               btn.textContent = "⊘ CLEARED";

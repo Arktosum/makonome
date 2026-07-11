@@ -4,8 +4,11 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from supabase import create_client
+from tools.registry import tool
 
 load_dotenv()
+
+_DAYS_PARAM = {"days": {"type": "integer", "description": "number of days to look back (default 30)"}}
 
 _client = None
 
@@ -22,6 +25,7 @@ def _get_client():
     return _client
 
 
+@tool(description="Get all active bank/account balances.")
 def get_account_balances() -> str:
     """Get all active account balances."""
     try:
@@ -45,6 +49,8 @@ def get_account_balances() -> str:
         return f"Could not fetch balances: {e}"
 
 
+@tool(description="Get total income vs expenses for the last N days.",
+      params=_DAYS_PARAM, required=[])
 def get_spending_summary(days: int = 30) -> str:
     """Get total income and expenses for the last N days."""
     try:
@@ -77,6 +83,8 @@ def get_spending_summary(days: int = 30) -> str:
         return f"Could not fetch summary: {e}"
 
 
+@tool(description="Get expense breakdown by category for the last N days.",
+      params=_DAYS_PARAM, required=[])
 def get_spending_by_category(days: int = 30) -> str:
     """Get expense breakdown by category for the last N days."""
     try:
@@ -111,6 +119,9 @@ def get_spending_by_category(days: int = 30) -> str:
         return f"Could not fetch categories: {e}"
 
 
+@tool(description="Get the most recent transactions.",
+      params={"limit": {"type": "integer", "description": "how many transactions (default 10)"}},
+      required=[])
 def get_recent_transactions(limit: int = 10) -> str:
     """Get the most recent transactions."""
     try:
@@ -146,6 +157,7 @@ def get_recent_transactions(limit: int = 10) -> str:
         return f"Could not fetch transactions: {e}"
 
 
+@tool(description="Get unsettled debts — money lent and borrowed.")
 def get_unsettled_debts() -> str:
     """Get all unsettled debts."""
     try:
@@ -183,6 +195,8 @@ def get_unsettled_debts() -> str:
         return f"Could not fetch debts: {e}"
 
 
+@tool(description="Get top merchants by spending for the last N days.",
+      params=_DAYS_PARAM, required=[])
 def get_top_merchants(days: int = 30, limit: int = 5) -> str:
     """Get top merchants by spending."""
     try:

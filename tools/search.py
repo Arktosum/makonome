@@ -3,7 +3,13 @@ from ddgs import DDGS
 import urllib.request
 import urllib.error
 import re
+from tools.registry import tool
 
+
+@tool(
+    description="Search the internet for current information.",
+    params={"query": {"type": "string", "description": "the search query"}},
+)
 def web_search(query: str, max_results: int = 5) -> str:
     """
     Search DuckDuckGo and return results as a formatted string
@@ -25,6 +31,10 @@ def web_search(query: str, max_results: int = 5) -> str:
     except Exception as e:
         return f"Search failed: {str(e)}"
 
+@tool(
+    description="Fetch and read the full text content of a web page.",
+    params={"url": {"type": "string", "description": "full URL starting with https://"}},
+)
 def fetch_page(url: str, max_chars: int = 3000) -> str:
     """
     Fetch the actual content of a webpage and return clean readable text.
