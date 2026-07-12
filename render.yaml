@@ -11,6 +11,14 @@ services:
         sync: false
       - key: VECTORDB_SUPABASE_ANON_KEY
         sync: false
+      - key: BALANCEFLOW_SUPABASE_URL
+        sync: false
+      - key: BALANCEFLOW_SUPABASE_ANON_KEY
+        sync: false
+      - key: MAKO_DASH_TOKEN
+        sync: false
+      - key: MAKO_NTFY_TOPIC
+        sync: false
       - key: PYTHON_VERSION
         value: 3.11.8
     autoDeploy: true

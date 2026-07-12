@@ -1,7 +1,7 @@
 name: makonome
 description: Mako — your personal AI assistant
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.0.0+2
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -10,22 +10,10 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # WebSocket
   web_socket_channel: ^3.0.2
-
-  # Speech
-  speech_to_text: ^7.0.0
-  flutter_tts: ^4.2.0
-
-  # State
   provider: ^6.1.2
-
-  # Storage
   shared_preferences: ^2.3.3
-
-  # Utils
-  intl: ^0.20.2
-  timezone: ^0.11.0
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:

@@ -1,27 +1,15 @@
-// lib/main.dart
+// Mako — personal AI assistant client.
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'providers/mako_provider.dart';
 import 'screens/chat_screen.dart';
+import 'services/settings_service.dart';
+import 'theme.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-  ));
-
-  runApp(
-    ChangeNotifierProvider(
-      create: (_) => MakoProvider()..init(),
-      child: const MakoApp(),
-    ),
-  );
+  await SettingsService().init();
+  runApp(const MakoApp());
 }
 
 class MakoApp extends StatelessWidget {
@@ -29,21 +17,14 @@ class MakoApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Mako',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF07100A),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF00FF88),
-          secondary: Color(0xFF00CC66),
-          surface: Color(0xFF0D1A10),
-        ),
-        fontFamily: 'monospace',
+    return ChangeNotifierProvider(
+      create: (_) => MakoProvider(),
+      child: MaterialApp(
+        title: 'Mako',
+        debugShowCheckedModeBanner: false,
+        theme: makoTheme,
+        home: const ChatScreen(),
       ),
-      home: const ChatScreen(),
     );
   }
 }

@@ -133,6 +133,11 @@ def heartbeat_tick(session, force: bool = False) -> str:
     emit({"type": "message", "data": {"role": "assistant", "content": decision}})
     session.note_assistant_message(decision)
     save_memory("assistant", f"(checked in unprompted) {decision}")
+
+    # reach the phone even when no app is open
+    from life.push import push
+    push(decision, title="Mako 💚", tags="speech_balloon")
+
     print(f"💓 Heartbeat spoke: {decision}", flush=True)
     return f"spoke: {decision}"
 

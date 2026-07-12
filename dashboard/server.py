@@ -105,6 +105,36 @@ def chat_endpoint():
         return {"ok": False, "error": str(e)}, 500
 
 
+@app.route('/api/health')
+def health_endpoint():
+    """
+    Unauthenticated liveness probe. The mobile app uses it to tell a sleeping
+    Render instance from a dead one (and hitting it wakes Render up);
+    an external uptime pinger can use it to keep the instance awake.
+    """
+    from life.push import is_configured
+    return {
+        "ok": True,
+        "status": "online" if _think_fn else "starting",
+        "push": is_configured(),
+        "time": datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+@app.route('/api/push-test', methods=['POST'])
+def push_test_endpoint():
+    """Fire a test push so the phone setup can be verified from the app."""
+    if not _authorized():
+        return {"ok": False, "error": "unauthorized"}, 401
+    from life.push import push, is_configured
+    if not is_configured():
+        return {"ok": False, "error": "MAKO_NTFY_TOPIC not set on the server"}, 503
+    sent = push("If you can read this, I can reach you anywhere now. 💚",
+                title="Mako — test", tags="tada")
+    return ({"ok": True} if sent
+            else ({"ok": False, "error": "push failed — check server logs"}, 502))
+
+
 # ── WebSocket ─────────────────────────────────────────
 
 @sock.route('/ws')

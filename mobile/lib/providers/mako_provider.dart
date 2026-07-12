@@ -1,285 +1,236 @@
-// lib/providers/mako_provider.dart
+// lib/providers/mako_provider.dart — app state + the connection status machine.
+//
+// Status flow:
+//   offline → checking → (waking, if Render is asleep) → connecting → online
+//                     ↘ error (unreachable / token rejected)
+// Any drop from online goes back to checking with auto-retry.
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_tts/flutter_tts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../services/websocket_service.dart';
+import '../services/api_service.dart';
+import '../services/settings_service.dart';
+import '../services/ws_service.dart';
 
-
-// ── Message model ─────────────────────────────────────────────────────────────
-enum MessageRole { user, mako }
+enum MakoStatus { offline, checking, waking, connecting, online, error }
 
 class ChatMessage {
-  final String id;
-  final MessageRole role;
-  final String content;
+  final String role; // 'user' | 'mako' | 'heartbeat' | 'system'
+  final String text;
   final DateTime time;
-  final Map<String, dynamic>? debugData; // prompt inspector data
+  ChatMessage(this.role, this.text, {DateTime? time})
+      : time = time ?? DateTime.now();
 
-  ChatMessage({
-    required this.id,
-    required this.role,
-    required this.content,
-    required this.time,
-    this.debugData,
-  });
+  Map<String, dynamic> toJson() =>
+      {'role': role, 'text': text, 'time': time.toIso8601String()};
+  factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
+        j['role'] as String? ?? 'system',
+        j['text'] as String? ?? '',
+        time: DateTime.tryParse(j['time'] as String? ?? '') ?? DateTime.now(),
+      );
 }
 
-// ── Conversation mode ─────────────────────────────────────────────────────────
-enum ConversationMode { text, voice, live }
-
-// ── Mako status ───────────────────────────────────────────────────────────────
-enum MakoStatus { idle, thinking, speaking, listening }
-
-// ── Provider ─────────────────────────────────────────────────────────────────
 class MakoProvider extends ChangeNotifier {
-  final WebSocketService _ws = WebSocketService();
-  final FlutterTts _tts = FlutterTts();
-  StreamSubscription? _eventSub;
-  StreamSubscription? _statusSub;
+  final _settings = SettingsService();
+  final _api = ApiService();
+  final _ws = WsService();
 
-  // ── State ──────────────────────────────────────────────────────────────────
-  final List<ChatMessage> _messages = [];
-  List<ChatMessage> get messages => List.unmodifiable(_messages);
+  MakoStatus status = MakoStatus.offline;
+  String statusDetail = '';
+  bool serverPushConfigured = false;
 
-  ConversationMode _mode = ConversationMode.text;
-  ConversationMode get mode => _mode;
+  final List<ChatMessage> messages = [];
+  bool thinking = false;
+  String? thought; // live 💭 while she reasons
+  String? toolNote; // live 🔧 while she uses a tool
 
-  MakoStatus _makoStatus = MakoStatus.idle;
-  MakoStatus get makoStatus => _makoStatus;
+  Timer? _retryTimer;
+  Timer? _wakeTimer;
+  int _wakeSeconds = 0;
+  String? _lastHeartbeatText; // dedupe: heartbeat also arrives as a message
+  bool _disposed = false;
 
-  ConnectionStatus _connStatus = ConnectionStatus.disconnected;
-  ConnectionStatus get connStatus => _connStatus;
-
-  bool _voiceOutput = true;
-  bool get voiceOutput => _voiceOutput;
-
-  bool _isThinking = false;
-  bool get isThinking => _isThinking;
-
-  String _thinkingText = '';
-  String get thinkingText => _thinkingText;
-
-  String _currentThought = '';
-  String get currentThought => _currentThought;
-
-  // last user message key for inspector
-  String? _lastUserMessage;
-
-  // prompt debug store: userMessage -> debugData
-  final Map<String, Map<String, dynamic>> _debugStore = {};
-  Map<String, dynamic>? getDebugData(String userMessage) =>
-      _debugStore[userMessage];
-
-  // ── Init ───────────────────────────────────────────────────────────────────
-  Future<void> init() async {
-    await _loadPrefs();
-    await _initTts();
-    _listenToWs();
-    _ws.connect();
+  MakoProvider() {
+    _loadHistory();
+    _ws.events.listen(_onEvent);
+    _ws.closed.listen((_) => _onDropped());
+    connect();
   }
 
-  Future<void> _loadPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    _voiceOutput = prefs.getBool('voice_output') ?? true;
-    final savedUrl = prefs.getString('server_url');
-    if (savedUrl != null) _ws.setServerUrl(savedUrl);
-    final savedMode = prefs.getInt('conversation_mode') ?? 0;
-    _mode = ConversationMode.values[savedMode];
+  // ── connection machine ────────────────────────────────────
+
+  Future<void> connect() async {
+    _retryTimer?.cancel();
+    _wakeTimer?.cancel();
+    _set(MakoStatus.checking, 'looking for Mako…');
+
+    final health = await _api.health();
+    if (_disposed) return;
+
+    if (!health.reachable) {
+      _startWaking();
+      return;
+    }
+    serverPushConfigured = health.pushConfigured;
+    await _validateAndOpen();
   }
 
-  Future<void> _initTts() async {
-    await _tts.setLanguage('en-US');
-    await _tts.setSpeechRate(0.48);
-    await _tts.setVolume(1.0);
-    await _tts.setPitch(1.05);
+  /// Render's free tier sleeps after ~15 idle minutes; the health probe both
+  /// detects that and pokes it awake. Poll until it responds (or give up).
+  void _startWaking() {
+    _wakeSeconds = 0;
+    _set(MakoStatus.waking, 'Mako seems to be asleep — waking her up…');
 
-    _tts.setCompletionHandler(() {
-      _setMakoStatus(MakoStatus.idle);
-    });
-
-    _tts.setErrorHandler((msg) {
-      _setMakoStatus(MakoStatus.idle);
-    });
-  }
-
-  void _listenToWs() {
-    _statusSub = _ws.status.listen((status) {
-      _connStatus = status;
-      notifyListeners();
-    });
-
-    _eventSub = _ws.events.listen((event) {
-      switch (event.type) {
-        case 'message':
-          _handleMessage(event);
-          break;
-        case 'thought':
-          _handleThought(event);
-          break;
-        case 'tool_call':
-          _handleToolCall(event);
-          break;
-        case 'prompt_debug':
-          _handlePromptDebug(event);
-          break;
-        default:
-          break;
+    _wakeTimer = Timer.periodic(const Duration(seconds: 5), (t) async {
+      _wakeSeconds += 5;
+      if (_wakeSeconds >= 120) {
+        t.cancel();
+        _set(MakoStatus.error,
+            "Couldn't wake Mako after 2 minutes. Is the server deployed and the URL right?");
+        _scheduleRetry(const Duration(seconds: 30));
+        return;
+      }
+      _set(MakoStatus.waking,
+          'Mako seems to be asleep — waking her up… ${_wakeSeconds}s '
+          '(Render cold starts take 30–60s)');
+      final health = await _api.health(timeout: const Duration(seconds: 4));
+      if (_disposed || status != MakoStatus.waking) return;
+      if (health.reachable) {
+        t.cancel();
+        serverPushConfigured = health.pushConfigured;
+        await _validateAndOpen();
       }
     });
   }
 
-  // ── Event handlers ─────────────────────────────────────────────────────────
-  void _handleMessage(MakoEvent event) {
-    final role = event.data['role'] as String?;
-    final content = event.data['content'] as String? ?? '';
+  Future<void> _validateAndOpen() async {
+    final tokenStatus = await _api.checkToken();
+    if (_disposed) return;
+    if (tokenStatus == TokenStatus.rejected) {
+      _set(MakoStatus.error,
+          'Mako is up, but she rejected the token. Set it in Settings.');
+      return; // no auto-retry — a bad token won't fix itself
+    }
 
-    if (role == 'assistant') {
-      _isThinking = false;
-      _thinkingText = '';
-      _currentThought = '';
-
-      // attach debug data if available
-      Map<String, dynamic>? debug;
-      if (_lastUserMessage != null &&
-          _debugStore.containsKey(_lastUserMessage)) {
-        debug = _debugStore[_lastUserMessage];
-      }
-      
-
-      _messages.add(ChatMessage(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        role: MessageRole.mako,
-        content: content,
-        time: DateTime.now(),
-        debugData: debug,
-      ));
-
-      // speak if voice output enabled
-      if (_voiceOutput &&
-          (_mode == ConversationMode.voice || _mode == ConversationMode.live)) {
-        _speak(content);
-      } else {
-        _setMakoStatus(MakoStatus.idle);
-      }
-
-      notifyListeners();
+    _set(MakoStatus.connecting, 'connecting…');
+    try {
+      await _ws.connect(_settings.wsUrl);
+      if (_disposed) return;
+      _set(MakoStatus.online, '');
+    } catch (_) {
+      _set(MakoStatus.error, 'The live connection failed. Retrying…');
+      _scheduleRetry(const Duration(seconds: 5));
     }
   }
 
-  void _handleThought(MakoEvent event) {
-    _currentThought = event.data['content'] as String? ?? '';
-    _isThinking = true;
-    _thinkingText = _currentThought;
-    _setMakoStatus(MakoStatus.thinking);
-    notifyListeners();
+  void _onDropped() {
+    if (_disposed) return;
+    thinking = false;
+    _set(MakoStatus.offline, 'connection lost — reconnecting…');
+    _scheduleRetry(const Duration(seconds: 3));
   }
 
-  void _handleToolCall(MakoEvent event) {
-    final tool = event.data['tool'] as String? ?? '';
-    _thinkingText = 'Using $tool...';
-    _setMakoStatus(MakoStatus.thinking);
-    notifyListeners();
+  void _scheduleRetry(Duration d) {
+    _retryTimer?.cancel();
+    _retryTimer = Timer(d, connect);
   }
 
-  void _handlePromptDebug(MakoEvent event) {
-    final userMsg = event.data['user_message'] as String?;
-    if (userMsg != null) {
-      _debugStore[userMsg] = event.data;
-    }
-  }
-
-  // ── Send message ───────────────────────────────────────────────────────────
-  void sendMessage(String text) {
-    if (text.trim().isEmpty) return;
-
-    _lastUserMessage = text;
-    _isThinking = true;
-    _thinkingText = '';
-    _setMakoStatus(MakoStatus.thinking);
-
-    _messages.add(ChatMessage(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      role: MessageRole.user,
-      content: text,
-      time: DateTime.now(),
-    ));
-
-    _ws.sendMessage(text);
-    notifyListeners();
-  }
-
-  // ── TTS ────────────────────────────────────────────────────────────────────
-  Future<void> _speak(String text) async {
-    // strip markdown symbols before speaking
-    final clean = text
-        .replaceAll(RegExp(r'\*+'), '')
-        .replaceAll(RegExp(r'#+'), '')
-        .replaceAll(RegExp(r'`+'), '')
-        .trim();
-
-    _setMakoStatus(MakoStatus.speaking);
-    await _tts.speak(clean);
-  }
-
-  Future<void> stopSpeaking() async {
-    await _tts.stop();
-    _setMakoStatus(MakoStatus.idle);
-  }
-
-  // ── Mode ───────────────────────────────────────────────────────────────────
-  Future<void> setMode(ConversationMode mode) async {
-    _mode = mode;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('conversation_mode', mode.index);
-    notifyListeners();
-  }
-
-  // ── Voice output toggle ────────────────────────────────────────────────────
-  Future<void> setVoiceOutput(bool val) async {
-    _voiceOutput = val;
-    if (!val) await _tts.stop();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('voice_output', val);
-    notifyListeners();
-  }
-
-  // ── Server URL ─────────────────────────────────────────────────────────────
-  Future<void> setServerUrl(String url) async {
-    _ws.setServerUrl(url);
+  Future<void> reconnect() async {
     _ws.disconnect();
-    _ws.connect();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('server_url', url);
+    await connect();
+  }
+
+  // ── chat ──────────────────────────────────────────────────
+
+  void send(String text) {
+    if (text.trim().isEmpty || status != MakoStatus.online) return;
+    _add(ChatMessage('user', text.trim()));
+    thinking = true;
+    thought = null;
+    toolNote = null;
+    _ws.sendMessage(text.trim());
     notifyListeners();
   }
 
-  String get serverUrl => _ws.serverUrl;
-
-  // ── Clear messages ─────────────────────────────────────────────────────────
-  void clearMessages() {
-    _messages.clear();
-    _isThinking = false;
-    _thinkingText = '';
+  void _onEvent(MakoEvent e) {
+    switch (e.type) {
+      case 'message':
+        final role = e.data['role'] as String?;
+        final content = (e.data['content'] as String?) ?? '';
+        if (role == 'assistant') {
+          thinking = false;
+          thought = null;
+          toolNote = null;
+          if (content == _lastHeartbeatText) {
+            _lastHeartbeatText = null; // already shown as a heartbeat bubble
+          } else {
+            _add(ChatMessage('mako', content));
+          }
+        }
+        // own user messages are echoed locally on send; ignore the broadcast
+        break;
+      case 'thought':
+        thought = (e.data['content'] as String?) ?? '';
+        break;
+      case 'tool_call':
+        toolNote = 'using ${e.data['tool'] ?? 'a tool'}…';
+        break;
+      case 'tool_result':
+        toolNote = null;
+        break;
+      case 'heartbeat':
+        final decision = e.data['decision'] as String?;
+        if (decision == 'spoke') {
+          _lastHeartbeatText = (e.data['message'] as String?) ?? '';
+          _add(ChatMessage('heartbeat', _lastHeartbeatText!));
+        } else if (decision == 'silent') {
+          _add(ChatMessage('system', '💓 checked in quietly — nothing to say'));
+        } else if (decision == 'reflected') {
+          _add(ChatMessage('system', '🪞 Mako reflected on who she is becoming'));
+        }
+        break;
+    }
     notifyListeners();
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-  void _setMakoStatus(MakoStatus status) {
-    _makoStatus = status;
+  // ── history persistence ───────────────────────────────────
+
+  void _add(ChatMessage m) {
+    messages.add(m);
+    if (messages.length > 200) messages.removeRange(0, messages.length - 200);
+    _settings.chatHistory =
+        jsonEncode(messages.map((m) => m.toJson()).toList());
+  }
+
+  void _loadHistory() {
+    try {
+      final raw = _settings.chatHistory;
+      if (raw.isEmpty) return;
+      final list = jsonDecode(raw) as List<dynamic>;
+      messages.addAll(
+          list.map((j) => ChatMessage.fromJson(j as Map<String, dynamic>)));
+    } catch (_) {/* corrupt history is not worth crashing over */}
+  }
+
+  void clearHistory() {
+    messages.clear();
+    _settings.chatHistory = '';
     notifyListeners();
   }
 
-  void setListening(bool val) {
-    _setMakoStatus(val ? MakoStatus.listening : MakoStatus.idle);
+  // ── plumbing ──────────────────────────────────────────────
+
+  void _set(MakoStatus s, String detail) {
+    status = s;
+    statusDetail = detail;
+    notifyListeners();
   }
 
   @override
   void dispose() {
-    _eventSub?.cancel();
-    _statusSub?.cancel();
-    _tts.stop();
-    _ws.dispose();
+    _disposed = true;
+    _retryTimer?.cancel();
+    _wakeTimer?.cancel();
+    _ws.disconnect();
     super.dispose();
   }
 }

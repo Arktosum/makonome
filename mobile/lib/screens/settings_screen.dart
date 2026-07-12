@@ -1,7 +1,11 @@
-// lib/screens/settings_screen.dart
+// lib/screens/settings_screen.dart — server, auth, and push setup.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/mako_provider.dart';
+import '../services/api_service.dart';
+import '../services/settings_service.dart';
+import '../theme.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -11,254 +15,193 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late TextEditingController _urlCtrl;
+  final _settings = SettingsService();
+  final _api = ApiService();
+
+  late final TextEditingController _url;
+  late final TextEditingController _token;
+  late final TextEditingController _ntfy;
+  bool _busy = false;
 
   @override
   void initState() {
     super.initState();
-    final mako = context.read<MakoProvider>();
-    _urlCtrl = TextEditingController(text: mako.serverUrl);
+    _url = TextEditingController(text: _settings.serverUrl);
+    _token = TextEditingController(text: _settings.token);
+    _ntfy = TextEditingController(text: _settings.ntfyTopic);
   }
 
-  @override
-  void dispose() {
-    _urlCtrl.dispose();
-    super.dispose();
+  void _snack(String msg, {bool ok = true}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg,
+          style: TextStyle(color: ok ? MakoColors.accent : MakoColors.err)),
+    ));
+  }
+
+  Future<void> _save() async {
+    _settings.serverUrl = _url.text;
+    _settings.token = _token.text;
+    _settings.ntfyTopic = _ntfy.text;
+    _snack('Saved — reconnecting…');
+    await context.read<MakoProvider>().reconnect();
+  }
+
+  Future<void> _testConnection() async {
+    setState(() => _busy = true);
+    _settings.serverUrl = _url.text;
+    _settings.token = _token.text;
+
+    final health = await _api.health(timeout: const Duration(seconds: 15));
+    if (!health.reachable) {
+      _snack("Can't reach Mako — she may be waking up (Render takes 30–60s). "
+          'Try again shortly.', ok: false);
+    } else {
+      final token = await _api.checkToken();
+      switch (token) {
+        case TokenStatus.valid:
+          _snack('Connected! Token accepted. '
+              'Server push: ${health.pushConfigured ? "configured ✓" : "NOT configured"}');
+        case TokenStatus.rejected:
+          _snack('Server is up, but the token was rejected.', ok: false);
+        case TokenStatus.unknown:
+          _snack('Server is up; token check was inconclusive.', ok: false);
+      }
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _testPush() async {
+    setState(() => _busy = true);
+    _settings.serverUrl = _url.text;
+    _settings.token = _token.text;
+    final err = await _api.pushTest();
+    _snack(err == null
+        ? 'Test push sent — check your notifications! 🎉'
+        : 'Push failed: $err', ok: err == null);
+    if (mounted) setState(() => _busy = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<MakoProvider>(
-      builder: (context, mako, _) => Scaffold(
-        backgroundColor: const Color(0xFF07100A),
-        appBar: AppBar(
-          backgroundColor: const Color(0xFF07100A),
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_rounded,
-                color: Color(0xFF2A5A3A), size: 18),
-            onPressed: () => Navigator.pop(context),
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _sectionTitle('SERVER'),
+          _field(_url, 'Server URL', 'https://makonome.onrender.com'),
+          const SizedBox(height: 12),
+          _field(_token, 'Access token (MAKO_DASH_TOKEN)', 'leave empty if unset',
+              obscure: true),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(
+              child: FilledButton(
+                onPressed: _busy ? null : _save,
+                style: FilledButton.styleFrom(
+                    backgroundColor: MakoColors.accent,
+                    foregroundColor: Colors.black),
+                child: const Text('Save & reconnect'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            OutlinedButton(
+              onPressed: _busy ? null : _testConnection,
+              child: const Text('Test',
+                  style: TextStyle(color: MakoColors.accent)),
+            ),
+          ]),
+          const SizedBox(height: 28),
+          _sectionTitle('PUSH NOTIFICATIONS'),
+          const Text(
+            'Mako reaches your phone through ntfy — even when this app is '
+            'closed.\n\n'
+            '1. Install the "ntfy" app (Play Store, free)\n'
+            '2. In ntfy: Subscribe to topic → enter the same topic that is set '
+            'as MAKO_NTFY_TOPIC on the server\n'
+            '3. Fire a test below — if your phone buzzes, Mako is omnipresent',
+            style: TextStyle(
+                color: MakoColors.textDim, fontSize: 13, height: 1.5),
           ),
-          title: const Text('SETTINGS',
-              style: TextStyle(
-                color: Color(0xFF00FF88),
-                fontSize: 12,
-                letterSpacing: 4,
-                fontFamily: 'monospace',
+          const SizedBox(height: 14),
+          _field(_ntfy, 'Your ntfy topic (for reference)', 'mako-…',
+              suffix: IconButton(
+                icon: const Icon(Icons.copy,
+                    size: 18, color: MakoColors.textDim),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: _ntfy.text));
+                  _snack('Topic copied');
+                },
               )),
-          bottom: const PreferredSize(
-            preferredSize: Size.fromHeight(1),
-            child: Divider(color: Color(0xFF0A3A1A), height: 1),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : _testPush,
+            icon: const Icon(Icons.notifications_active_outlined,
+                color: MakoColors.accent, size: 18),
+            label: const Text('Send test notification',
+                style: TextStyle(color: MakoColors.accent)),
           ),
-        ),
-        body: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            _sectionHeader('CONNECTION'),
-            const SizedBox(height: 10),
-            _SettingCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('SERVER URL',
-                      style: TextStyle(
-                        color: Color(0xFF2A5A3A),
-                        fontSize: 9,
-                        letterSpacing: 2,
-                        fontFamily: 'monospace',
-                      )),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _urlCtrl,
-                    style: const TextStyle(
-                      color: Color(0xFFB8DDC8),
-                      fontSize: 13,
-                      fontFamily: 'monospace',
-                    ),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                      hintText: 'wss://makonome.onrender.com/ws',
-                      hintStyle: TextStyle(color: Color(0xFF1A4A2A)),
-                    ),
-                    onSubmitted: (val) {
-                      mako.setServerUrl(val.trim());
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Reconnecting...'),
-                          backgroundColor: Color(0xFF001A0A),
-                          duration: Duration(seconds: 2),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      _SmallButton(
-                        label: 'APPLY',
-                        onTap: () {
-                          mako.setServerUrl(_urlCtrl.text.trim());
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Reconnecting...'),
-                              backgroundColor: Color(0xFF001A0A),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _SmallButton(
-                        label: 'LOCAL',
-                        onTap: () {
-                          _urlCtrl.text = 'ws://192.168.1.100:8765/ws';
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _SmallButton(
-                        label: 'RENDER',
-                        onTap: () {
-                          _urlCtrl.text = 'wss://makonome.onrender.com/ws';
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            _sectionHeader('VOICE'),
-            const SizedBox(height: 10),
-            _SettingCard(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('VOICE OUTPUT',
-                          style: TextStyle(
-                            color: Color(0xFF9ECFB0),
-                            fontSize: 13,
-                          )),
-                      SizedBox(height: 2),
-                      Text('Mako speaks her responses',
-                          style: TextStyle(
-                            color: Color(0xFF2A5A3A),
-                            fontSize: 11,
-                          )),
-                    ],
-                  ),
-                  Switch(
-                    value: mako.voiceOutput,
-                    onChanged: mako.setVoiceOutput,
-                    activeColor: const Color(0xFF00FF88),
-                    activeTrackColor: const Color(0xFF003A1A),
-                    inactiveThumbColor: const Color(0xFF2A5A3A),
-                    inactiveTrackColor: const Color(0xFF0A1A0D),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            _sectionHeader('CHAT'),
-            const SizedBox(height: 10),
-            _SettingCard(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('CLEAR MESSAGES',
-                          style: TextStyle(
-                              color: Color(0xFF9ECFB0), fontSize: 13)),
-                      SizedBox(height: 2),
-                      Text('Remove messages from this session',
-                          style: TextStyle(
-                              color: Color(0xFF2A5A3A), fontSize: 11)),
-                    ],
-                  ),
-                  _SmallButton(
-                    label: 'CLEAR',
-                    color: const Color(0xFFFF4455),
-                    onTap: () {
-                      mako.clearMessages();
-                      Navigator.pop(context);
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 40),
-            Center(
-              child: Text(
-                'MAKO v1.0 · makonome.onrender.com',
-                style: const TextStyle(
-                  color: Color(0xFF1A3A25),
-                  fontSize: 10,
-                  fontFamily: 'monospace',
-                  letterSpacing: 1,
-                ),
-              ),
-            ),
-          ],
+          const SizedBox(height: 28),
+          _sectionTitle('DATA'),
+          OutlinedButton.icon(
+            onPressed: () {
+              context.read<MakoProvider>().clearHistory();
+              _snack('Local chat history cleared (Mako still remembers — '
+                  'this only clears the phone)');
+            },
+            icon: const Icon(Icons.delete_outline,
+                color: MakoColors.err, size: 18),
+            label: const Text('Clear local chat history',
+                style: TextStyle(color: MakoColors.err)),
+          ),
+          const SizedBox(height: 24),
+          if (_busy)
+            const Center(
+                child: CircularProgressIndicator(color: MakoColors.accent)),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String t) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text(t,
+            style: const TextStyle(
+                color: MakoColors.accent,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.5)),
+      );
+
+  Widget _field(TextEditingController c, String label, String hint,
+      {bool obscure = false, Widget? suffix}) {
+    return TextField(
+      controller: c,
+      obscureText: obscure,
+      style: const TextStyle(color: MakoColors.text, fontSize: 14),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: MakoColors.textDim, fontSize: 13),
+        hintText: hint,
+        hintStyle: TextStyle(
+            color: MakoColors.textDim.withValues(alpha: 0.5), fontSize: 13),
+        filled: true,
+        fillColor: MakoColors.surfaceLight,
+        suffixIcon: suffix,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide.none,
         ),
       ),
     );
   }
 
-  Widget _sectionHeader(String label) => Text(
-        label,
-        style: const TextStyle(
-          color: Color(0xFF2A5A3A),
-          fontSize: 9,
-          letterSpacing: 3,
-          fontFamily: 'monospace',
-        ),
-      );
-}
-
-class _SettingCard extends StatelessWidget {
-  final Widget child;
-  const _SettingCard({required this.child});
-
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF0D1A10),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFF1A3A25)),
-        ),
-        child: child,
-      );
-}
-
-class _SmallButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  final Color? color;
-
-  const _SmallButton({required this.label, required this.onTap, this.color});
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            border: Border.all(color: color ?? const Color(0xFF1A3A25)),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Text(label,
-              style: TextStyle(
-                color: color ?? const Color(0xFF4A8A5A),
-                fontSize: 9,
-                letterSpacing: 1.5,
-                fontFamily: 'monospace',
-              )),
-        ),
-      );
+  void dispose() {
+    _url.dispose();
+    _token.dispose();
+    _ntfy.dispose();
+    super.dispose();
+  }
 }

@@ -60,6 +60,7 @@ Deploys to Render via `render.yaml` (`RENDER` env var switches to cloud mode).
 | `VECTORDB_SUPABASE_URL` / `VECTORDB_SUPABASE_ANON_KEY` | memory store |
 | `BALANCEFLOW_SUPABASE_URL` / `BALANCEFLOW_SUPABASE_ANON_KEY` | finance tools |
 | `MAKO_DASH_TOKEN` | shared-secret auth (recommended in cloud) |
+| `MAKO_NTFY_TOPIC` | secret ntfy.sh topic for push notifications |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `LLM_BASE_URL` + `LLM_API_KEY` | optional alternate providers |
 
 ## API
@@ -81,4 +82,21 @@ memory hits, heartbeat decisions, prompt-inspector breakdowns). Send
 **`POST /api/clear-memories`** — wipe episodic memory (same auth).
 
 One Session backs every door, so Mako is one continuous conversation across
-dashboard, terminal, and API.
+dashboard, terminal, mobile, and API.
+
+## Omnipresence setup
+
+Three pieces make Mako reachable anywhere:
+
+1. **Push notifications (ntfy)** — pick a long random topic name (it's a
+   password), set it as `MAKO_NTFY_TOPIC` on the server, install the free
+   [ntfy](https://ntfy.sh) app on the phone and subscribe to the same topic.
+   Heartbeat check-ins now buzz the phone even when Mako's app is closed.
+   Verify with the "Send test notification" button in the app's settings.
+2. **The Mako app** (`mobile/`) — Flutter client with live status
+   (detects a sleeping Render instance and wakes it with progress feedback),
+   token auth, and heartbeat-aware chat. `flutter build apk --release`.
+3. **Keep-alive (optional)** — Render's free tier sleeps after ~15 idle
+   minutes, which also pauses the heartbeat. A free uptime pinger (e.g.
+   UptimeRobot) hitting `GET /api/health` every 10 minutes keeps her awake
+   around the clock.
