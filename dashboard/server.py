@@ -1,6 +1,7 @@
 # dashboard/server.py
 import json
 import os
+import secrets
 import threading
 from queue import Queue
 from datetime import datetime
@@ -18,15 +19,21 @@ event_queue = Queue()
 # this will be set by main.py to point at the session's think function
 _think_fn = None
 
-# optional shared-secret auth: set MAKO_DASH_TOKEN and open the dashboard
-# with ?token=<value> — required in cloud mode, optional locally
+# optional shared-secret auth: set MAKO_DASH_TOKEN and pass the token as
+# ?token=<value>, an X-Mako-Token header, or Authorization: Bearer <value>.
+# Required in cloud mode, optional locally.
 _DASH_TOKEN = os.environ.get("MAKO_DASH_TOKEN")
 
 
 def _authorized() -> bool:
     if not _DASH_TOKEN:
         return True
-    return request.args.get("token") == _DASH_TOKEN
+    supplied = (
+        request.args.get("token")
+        or request.headers.get("X-Mako-Token")
+        or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    )
+    return bool(supplied) and secrets.compare_digest(supplied, _DASH_TOKEN)
 
 
 def set_think_fn(fn):

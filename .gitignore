@@ -6,3 +6,4 @@ chroma_db/
 *.egg-info/
 dist/
 .DS_Store
+mobile/android/build/

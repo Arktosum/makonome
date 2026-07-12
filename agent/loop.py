@@ -30,7 +30,10 @@ def run_agent_loop(messages: list[dict], tool_specs: list[dict] | None) -> str:
         if tool_specs is not None:
             # ── native path ────────────────────────────────
             if not response.has_tool_calls or calls_made >= MAX_TOOL_CALLS:
-                return response.text.strip()
+                # at the cap the model may have answered with only tool calls —
+                # never return an empty reply
+                return response.text.strip() or \
+                    "I got a bit lost in my tools there — mind asking that again?"
 
             if response.text.strip():
                 emit({"type": "thought", "data": {"content": response.text.strip()}})
@@ -44,7 +47,8 @@ def run_agent_loop(messages: list[dict], tool_specs: list[dict] | None) -> str:
             # ── ReAct fallback path ────────────────────────
             tool_call = parse_react(response.text)
             if not tool_call or calls_made >= MAX_TOOL_CALLS:
-                return clean_response(response.text)
+                return clean_response(response.text) or \
+                    "I got a bit lost in my tools there — mind asking that again?"
 
             thought = extract_thought(response.text)
             if thought:
