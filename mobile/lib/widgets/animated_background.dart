@@ -63,6 +63,7 @@ class _AuroraPainter extends CustomPainter {
     _Orb(0.15, 0.20, 0.18, 0.10, 1, 0.0, 0.85, Color(0xFF00E68A)),
     _Orb(0.90, 0.55, 0.12, 0.16, 2, 2.1, 0.70, Color(0xFF0E7A55)),
     _Orb(0.35, 0.95, 0.20, 0.08, 1, 4.2, 0.95, Color(0xFF00B4D8)),
+    _Orb(0.70, 0.05, 0.15, 0.12, 1, 1.3, 0.60, Color(0xFF7A5CFF)),
   ];
 
   @override
@@ -81,8 +82,8 @@ class _AuroraPainter extends CustomPainter {
       final paint = Paint()
         ..shader = RadialGradient(
           colors: [
-            o.color.withValues(alpha: 0.10),
-            o.color.withValues(alpha: 0.03),
+            o.color.withValues(alpha: 0.16),
+            o.color.withValues(alpha: 0.05),
             o.color.withValues(alpha: 0.0),
           ],
           stops: const [0.0, 0.6, 1.0],

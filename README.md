@@ -14,10 +14,10 @@ text first only when she has a reason to.
   writes one first-person line to her journal. Weekly, a reflection pass reads
   the journal and rewrites `about_mako` — her identity is emergent, not
   hardcoded. The prompt in `config.py` is only the seed.
-- **Texts first, rarely.** A heartbeat scheduler ticks every 15 minutes behind
-  hard gates (quiet hours, 3h min silence, 4h spacing, 3/day cap) and only then
-  asks the model if there's genuinely something worth saying. SILENT is the
-  expected answer.
+- **Texts first, with judgment.** A heartbeat scheduler gives her one genuine
+  chance to speak every hour (quiet hours 23:00–08:00 excepted) and asks the
+  model if there's truly something worth saying. SILENT is the expected
+  answer — recent conversation doesn't mute her, taste does.
 - **Uses tools.** Web search, page fetch, weather, app launching, personal
   finance (BalanceFlow), and her own notes — all registered once in
   `tools/registry.py`.

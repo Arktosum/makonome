@@ -17,6 +17,11 @@ class ChatMessage {
   final String role; // 'user' | 'mako' | 'heartbeat' | 'system'
   final String text;
   final DateTime time;
+
+  /// Prompt-inspector sections [{label, color, text}] for mako replies.
+  /// Transient — kept in memory for this run, not persisted.
+  List<Map<String, dynamic>>? inspector;
+
   ChatMessage(this.role, this.text, {DateTime? time})
       : time = time ?? DateTime.now();
 
@@ -47,6 +52,7 @@ class MakoProvider extends ChangeNotifier {
   Timer? _wakeTimer;
   int _wakeSeconds = 0;
   String? _lastHeartbeatText; // dedupe: heartbeat also arrives as a message
+  List<Map<String, dynamic>>? _pendingInspector; // prompt_debug → next reply
   bool _disposed = false;
 
   MakoProvider() {
@@ -163,10 +169,22 @@ class MakoProvider extends ChangeNotifier {
           if (content == _lastHeartbeatText) {
             _lastHeartbeatText = null; // already shown as a heartbeat bubble
           } else {
-            _add(ChatMessage('mako', content));
+            final m = ChatMessage('mako', content);
+            m.inspector = _pendingInspector;
+            _pendingInspector = null;
+            _add(m);
           }
         }
         // own user messages are echoed locally on send; ignore the broadcast
+        break;
+      case 'prompt_debug':
+        final secs = e.data['sections'];
+        if (secs is List) {
+          _pendingInspector = secs
+              .whereType<Map>()
+              .map((s) => s.map((k, v) => MapEntry(k.toString(), v)))
+              .toList();
+        }
         break;
       case 'thought':
         thought = (e.data['content'] as String?) ?? '';

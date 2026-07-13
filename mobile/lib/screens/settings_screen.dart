@@ -6,6 +6,7 @@ import '../providers/mako_provider.dart';
 import '../services/api_service.dart';
 import '../services/settings_service.dart';
 import '../theme.dart';
+import 'about_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -155,6 +156,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: MakoColors.err, size: 18),
             label: const Text('Clear local chat history',
                 style: TextStyle(color: MakoColors.err)),
+          ),
+          const SizedBox(height: 28),
+          _sectionTitle('HELP'),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const AboutScreen())),
+            icon: const Icon(Icons.auto_awesome_outlined,
+                color: MakoColors.accent, size: 18),
+            label: const Text('About Mako — every feature explained',
+                style: TextStyle(color: MakoColors.accent)),
           ),
           const SizedBox(height: 24),
           if (_busy)

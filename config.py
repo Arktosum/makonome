@@ -79,12 +79,13 @@ MAX_TOOL_CALLS = 8
 
 # ── Heartbeat scheduler ───────────────────────────────────────────────────────
 HEARTBEAT = {
-    "check_interval_min": 15,   # how often the scheduler wakes up
-    "min_silence_hours": 3,     # never ping if you talked more recently than this
-    "min_gap_hours": 4,         # minimum spacing between heartbeat attempts
+    "check_interval_min": 60,   # one genuine chance to speak every hour
+    "min_silence_hours": 0,     # recent conversation doesn't mute her —
+                                # if she has something worth saying, she says it
+    "min_gap_hours": 1,         # at most one attempt per hour
     "quiet_start": 23,          # no pings from this hour...
     "quiet_end": 8,             # ...until this hour (Asia/Kolkata)
-    "daily_cap": 3,             # max unprompted messages per day
+    "daily_cap": 12,            # sanity ceiling, not a schedule — SILENT is the real gate
 }
 REFLECTION_EVERY_DAYS = 7
 CONSOLIDATION_EVERY_DAYS = 7
@@ -176,7 +177,9 @@ Rules:
 - NEVER make up fake memories, events, or threads
 - A generic "how's your day going" is almost never worth sending — be SILENT instead
 - If you genuinely have nothing worth saying, respond with exactly: SILENT
-- Be SILENT more often than not. Silence is the default; speaking is the exception.
+- You get this chance EVERY HOUR — a real friend texts first maybe once or
+  twice a day, so the overwhelming majority of these checks must end in SILENT.
+  Speak only when this specific hour gives you a real reason.
 """
 
 # ── Memory consolidation (weekly — how knowing {user} deepens) ────────────────
