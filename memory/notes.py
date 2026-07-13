@@ -142,6 +142,34 @@ def get_relevant_notes(query: str) -> list[dict]:
         return []
 
 
+def get_note_index() -> str:
+    """
+    Compact index of topic notes (name + first-line snippet), so the model
+    always knows what notes exist and can read_note the ones it needs.
+    Excludes auto-injected notes (already in context), person notes (they
+    have their own index), internal state, and the journal.
+    """
+    try:
+        result = get_client().table("notes") \
+            .select("name, category, content") \
+            .eq("auto_inject", False) \
+            .order("name") \
+            .execute()
+
+        lines = []
+        for row in (result.data or []):
+            if row["name"].startswith("_") or row["category"] in ("journal", "person"):
+                continue
+            first_line = (row["content"] or "").split("\n", 1)[0].strip()
+            snippet = first_line.lstrip("#> ").strip()[:60]
+            lines.append(f"- {row['name']}: {snippet}" if snippet else f"- {row['name']}")
+        return "\n".join(lines)
+
+    except Exception as e:
+        print(f"⚠️  Note index failed: {e}", flush=True)
+        return ""
+
+
 def get_notes_by_category(category: str) -> list[dict]:
     """All notes in a category as {name, content} dicts."""
     try:

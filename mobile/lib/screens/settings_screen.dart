@@ -43,6 +43,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _settings.serverUrl = _url.text;
     _settings.token = _token.text;
     _settings.ntfyTopic = _ntfy.text;
+    _url.text = _settings.serverUrl; // show the normalized form
     _snack('Saved — reconnecting…');
     await context.read<MakoProvider>().reconnect();
   }
@@ -90,7 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           _sectionTitle('SERVER'),
-          _field(_url, 'Server URL', 'https://makonome.onrender.com'),
+          _field(_url, 'Server URL (base — no /ws)', 'https://makonome.onrender.com'),
           const SizedBox(height: 12),
           _field(_token, 'Access token (MAKO_DASH_TOKEN)', 'leave empty if unset',
               obscure: true),

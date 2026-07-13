@@ -68,6 +68,7 @@ const Activity = (() => {
       const d = event.data || {};
       const txt = d.decision === 'spoke' ? `spoke: ${d.message || ''}`
                 : d.decision === 'reflected' ? `🪞 ${d.message || 'reflection ran'}`
+                : d.decision === 'consolidated' ? `🗜 ${d.message || 'weekly memories consolidated'}`
                 : 'checked in silently — nothing worth saying';
       body = `<div class="think-box"><div class="think-txt">${escHtml(txt)}</div></div>`;
     } else if (event.type === 'memory') {

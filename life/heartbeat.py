@@ -16,7 +16,8 @@ import threading
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from config import HEARTBEAT, REFLECTION_EVERY_DAYS, HEARTBEAT_PROMPT, USER_NAME, TIMEZONE
+from config import (HEARTBEAT, REFLECTION_EVERY_DAYS, CONSOLIDATION_EVERY_DAYS,
+                    HEARTBEAT_PROMPT, USER_NAME, TIMEZONE)
 from llm import complete
 from memory.episodic import save_memory, get_last_memory_timestamp, get_recent_memory_rows
 from memory.notes import get_note, write_note
@@ -90,8 +91,9 @@ def heartbeat_tick(session, force: bool = False) -> str:
         state["date"] = today
         state["count_today"] = 0
 
-    # ── reflection check rides the same clock ────────────
+    # ── reflection + consolidation ride the same clock ───
     _maybe_reflect(now, state)
+    _maybe_consolidate(now, state)
 
     # ── hard gates (no LLM cost) ──────────────────────────
     if not force:
@@ -188,6 +190,28 @@ def _maybe_reflect(now: datetime, state: dict):
             _save_state(state)
     except Exception as e:
         print(f"⚠️  Reflection failed: {e}", flush=True)
+
+
+def _maybe_consolidate(now: datetime, state: dict):
+    """Run the weekly memory consolidation when it's due (and not at night)."""
+    if _in_quiet_hours(now):
+        return
+    last = _parse_iso(state.get("last_consolidation"))
+    if last and (now - last) < timedelta(days=CONSOLIDATION_EVERY_DAYS):
+        return
+    try:
+        from memory.consolidator import consolidate
+        since = (last or (now - timedelta(days=CONSOLIDATION_EVERY_DAYS))).isoformat()
+        ran = consolidate(since)
+        # record the attempt either way — a quiet week shouldn't be retried
+        # every 15 minutes for the rest of the day
+        state["last_consolidation"] = now.isoformat()
+        _save_state(state)
+        if ran:
+            emit({"type": "heartbeat", "data": {"decision": "consolidated",
+                                                "message": "distilled the week's memories"}})
+    except Exception as e:
+        print(f"⚠️  Consolidation failed: {e}", flush=True)
 
 
 # ── the scheduler ─────────────────────────────────────────────

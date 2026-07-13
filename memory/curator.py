@@ -25,8 +25,11 @@ and decide what to update in Mako's knowledge base.
 
 The knowledge base:
 - about_siddhu: permanent identity document about {USER_NAME}
+  (do NOT update this — a weekly consolidation process owns it; durable identity
+  changes emerge from patterns, not single exchanges)
 - about_mako: Mako's own identity (do NOT update this — a separate reflection process owns it)
-- current_context: what's happening in {USER_NAME}'s life right now
+- current_context: what's happening in {USER_NAME}'s life right now — THIS is
+  where fresh life updates go (new events, current situations, what's on his plate)
 - open_threads: pending things worth following up on later
 - person_<name>: one note per person in {USER_NAME}'s life (person_gayathri, person_amma, ...)
 - project_<name> / topic notes: deeper notes on projects and topics
@@ -163,8 +166,10 @@ EXCHANGE:
 
             if not note_name or not content:
                 continue
-            if note_name == "about_mako":
-                continue  # reflection owns Mako's identity, not the curator
+            if note_name in ("about_mako", "about_siddhu"):
+                # reflection owns Mako's identity; weekly consolidation owns
+                # Siddhu's — the curator only touches the fast layers
+                continue
 
             write_note(
                 note_name, content,

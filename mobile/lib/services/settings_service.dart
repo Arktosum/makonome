@@ -14,8 +14,21 @@ class SettingsService {
 
   String get serverUrl =>
       _prefs.getString('server_url') ?? 'https://makonome.onrender.com';
-  set serverUrl(String v) =>
-      _prefs.setString('server_url', v.trim().replaceAll(RegExp(r'/+$'), ''));
+
+  /// Stores the BASE url. Forgiving of common mistakes: ws:// schemes,
+  /// a pasted /ws (or /w) path, trailing slashes, missing scheme.
+  set serverUrl(String v) {
+    var s = v.trim();
+    s = s.replaceFirst('wss://', 'https://').replaceFirst('ws://', 'http://');
+    if (!s.startsWith('http://') && !s.startsWith('https://')) s = 'https://$s';
+    s = s.replaceAll(RegExp(r'/+$'), '');
+    s = s.replaceFirst(RegExp(r'/ws?$'), '');
+    // Render only serves TLS — plain http just redirects (and breaks POSTs)
+    if (s.startsWith('http://') && s.contains('.onrender.com')) {
+      s = s.replaceFirst('http://', 'https://');
+    }
+    _prefs.setString('server_url', s);
+  }
 
   String get token => _prefs.getString('token') ?? '';
   set token(String v) => _prefs.setString('token', v.trim());

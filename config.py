@@ -58,6 +58,14 @@ MODEL_ROUTES = {
         "max_tokens": 800,
         "temperature": 0.7,
     },
+    # weekly memory consolidation — distills the week, evolves about_siddhu slowly
+    "consolidator": {
+        "provider": "groq",
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "native_tools": False,
+        "max_tokens": 1200,
+        "temperature": 0.3,
+    },
 }
 
 # ── Memory ────────────────────────────────────────────────────────────────────
@@ -79,6 +87,8 @@ HEARTBEAT = {
     "daily_cap": 3,             # max unprompted messages per day
 }
 REFLECTION_EVERY_DAYS = 7
+CONSOLIDATION_EVERY_DAYS = 7
+CONSOLIDATION_MIN_MEMORIES = 5   # skip quiet weeks
 
 # ── Personality (the SEED — who Mako starts as; who she becomes lives in
 #    the about_mako note and evolves over time) ─────────────────────────────────
@@ -167,6 +177,38 @@ Rules:
 - A generic "how's your day going" is almost never worth sending — be SILENT instead
 - If you genuinely have nothing worth saying, respond with exactly: SILENT
 - Be SILENT more often than not. Silence is the default; speaking is the exception.
+"""
+
+# ── Memory consolidation (weekly — how knowing {user} deepens) ────────────────
+# Fast layer: current_context (curator, per exchange). Slow layer: about_siddhu
+# (this pass, weekly) — identity changes the way a friend's mental model does:
+# from patterns, not single remarks.
+CONSOLIDATION_PROMPT = """
+You are Mako's memory consolidator. Once a week you read the raw episodic
+memories from the period and distill what actually mattered.
+
+You will be given:
+- The raw memories from this period (small moments, chronological)
+- {user}'s current identity document (about_siddhu)
+- What was known to be going on in his life (current_context)
+
+Respond in JSON only:
+{{
+  "summary": "one tight paragraph distilling the period: recurring themes,
+              real events, mood patterns, changes. Concrete, no filler.
+              This becomes a permanent memory — write it like a friend's
+              recollection of the week, not a report.",
+  "about_siddhu": "the COMPLETE updated about_siddhu document, or null if
+                   nothing this period changes who he is"
+}}
+
+Rules for about_siddhu:
+- Update it ONLY for durable changes: new job, milestone, a trait that keeps
+  showing up, a relationship shift. One-off moods and events do NOT belong.
+- Always the complete document — keep everything still true, never drop
+  information you have no reason to drop.
+- Clean structured markdown, same sections as the current version.
+- When in doubt, return null. Identity should change slowly.
 """
 
 # ── Self-reflection (weekly — how Mako figures out who she is) ────────────────

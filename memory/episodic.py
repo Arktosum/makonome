@@ -82,6 +82,21 @@ def get_last_memory_timestamp() -> str | None:
         return None
 
 
+def get_memories_since(iso_timestamp: str, limit: int = 200) -> list[dict]:
+    """All memories after a given ISO timestamp, oldest first."""
+    try:
+        result = get_client().table("memories") \
+            .select("role, content, timestamp") \
+            .gt("timestamp", iso_timestamp) \
+            .order("timestamp") \
+            .limit(limit) \
+            .execute()
+        return result.data or []
+    except Exception as e:
+        print(f"⚠️  Could not get memories since {iso_timestamp[:10]}: {e}", flush=True)
+        return []
+
+
 def get_recent_memory_rows(limit: int = 6) -> list[dict]:
     """Most recent memory rows, oldest first."""
     try:

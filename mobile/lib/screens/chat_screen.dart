@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/mako_provider.dart';
 import '../theme.dart';
+import '../widgets/animated_background.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/status_banner.dart';
 import 'settings_screen.dart';
@@ -68,27 +69,29 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ],
           ),
-          body: Column(
-            children: [
-              StatusBanner(
-                status: mako.status,
-                detail: mako.statusDetail,
-                onRetry: mako.connect,
-              ),
-              Expanded(
-                child: mako.messages.isEmpty
-                    ? const _EmptyState()
-                    : ListView.builder(
-                        controller: _scroll,
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
-                        itemCount: mako.messages.length,
-                        itemBuilder: (_, i) =>
-                            MessageBubble(message: mako.messages[i]),
-                      ),
-              ),
-              if (mako.thinking) _ThinkingBar(mako: mako),
-              _inputBar(mako, online),
-            ],
+          body: AnimatedBackground(
+            child: Column(
+              children: [
+                StatusBanner(
+                  status: mako.status,
+                  detail: mako.statusDetail,
+                  onRetry: mako.connect,
+                ),
+                Expanded(
+                  child: mako.messages.isEmpty
+                      ? const _EmptyState()
+                      : ListView.builder(
+                          controller: _scroll,
+                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+                          itemCount: mako.messages.length,
+                          itemBuilder: (_, i) =>
+                              MessageBubble(message: mako.messages[i]),
+                        ),
+                ),
+                if (mako.thinking) _ThinkingBar(mako: mako),
+                _inputBar(mako, online),
+              ],
+            ),
           ),
         );
       },

@@ -13,7 +13,7 @@ from config import SYSTEM_PROMPT, TIMEZONE
 from llm.client import route_supports_native_tools
 from llm.react_fallback import build_react_prompt
 from memory import get_auto_inject_notes, get_relevant_notes
-from memory.notes import get_notes_by_category
+from memory.notes import get_notes_by_category, get_note_index
 from tools.registry import get_specs
 
 _DIV = "=" * 50
@@ -67,6 +67,14 @@ def build_context(user_message: str, memories: list[str], session_ctx: str) -> d
             people_index + "\n(use read_note on a person_ note for full details)",
         )
 
+    # note index — what she keeps notes about, so she can read_note on demand
+    note_index = get_note_index()
+    if note_index:
+        system += _section(
+            "YOUR NOTES",
+            note_index + "\n(use read_note when one is relevant to the conversation)",
+        )
+
     # ── volatile block, attached to the current user turn ─────
     current_time = datetime.now(ZoneInfo(TIMEZONE)).strftime("%A, %B %d %Y, %I:%M %p")
 
@@ -88,6 +96,7 @@ def build_context(user_message: str, memories: list[str], session_ctx: str) -> d
         {"label": "TOOLS",         "color": "purple", "text": tools_text},
         {"label": "IDENTITY & NOTES", "color": "green", "text": identity_block or "(none yet)"},
         {"label": "PEOPLE",        "color": "purple", "text": people_index or "(no person notes yet)"},
+        {"label": "NOTE INDEX",    "color": "green",  "text": note_index or "(no topic notes yet)"},
         {"label": "TOPIC NOTES",   "color": "amber",  "text": "\n\n".join(f"[{n['name']}]\n{n['content']}" for n in relevant_notes) or "(none relevant)"},
         {"label": "MEMORIES",      "color": "cyan",   "text": "\n".join(memories) or "(none retrieved)"},
         {"label": "USER MESSAGE",  "color": "red",    "text": f"[{current_time}]\n{user_message}"},
