@@ -1,6 +1,7 @@
 # agent/session.py — one Session owns a conversation: buffer, context, loop.
 # All frontends (dashboard, voice, CLI) talk to the same Session object.
 
+import json
 import threading
 import time
 from collections import deque
@@ -9,9 +10,12 @@ from zoneinfo import ZoneInfo
 from config import BUFFER_TURNS, TIMEZONE, MEMORY_SEMANTIC_RESULTS, MEMORY_RECENT_RESULTS
 from memory import retrieve_memories
 from memory.curator import curate
+from memory.notes import get_note, write_note
 from agent.context import build_context
 from agent.loop import run_agent_loop
 from agent.events import emit
+
+BUFFER_NOTE = "_session_buffer"
 
 
 class Session:
@@ -20,16 +24,53 @@ class Session:
         self._lock = threading.Lock()
         self._started = datetime.now(ZoneInfo(TIMEZONE))
         self.last_interaction: datetime | None = None
+        self._restore_buffer()
+
+    # ── buffer persistence — a redeploy must not wipe short-term memory ──
+    def _restore_buffer(self):
+        try:
+            raw = get_note(BUFFER_NOTE)
+            if raw:
+                turns = json.loads(raw)
+                self._buffer.extend(
+                    t for t in turns
+                    if isinstance(t, dict) and t.get("role") in ("user", "assistant")
+                )
+                if self._buffer:
+                    print(f"🔁 Restored {len(self._buffer)} buffered turns", flush=True)
+        except Exception as e:
+            print(f"⚠️  Buffer restore failed: {e}", flush=True)
+
+    def _persist_buffer(self):
+        """Fire-and-forget save of the live buffer (called off the hot path)."""
+        try:
+            with self._lock:
+                snapshot = list(self._buffer)
+            write_note(BUFFER_NOTE, json.dumps(snapshot),
+                       category="system", quiet=True)
+        except Exception as e:
+            print(f"⚠️  Buffer persist failed: {e}", flush=True)
 
     @property
     def started(self) -> datetime:
         return self._started
+
+    def recent_transcript(self, turns: int = 10) -> str:
+        """Plain-text tail of the live conversation (for the heartbeat's
+        awareness of what was actually just said)."""
+        with self._lock:
+            tail = list(self._buffer)[-turns:]
+        return "\n".join(
+            f"{'Siddhu' if m['role'] == 'user' else 'Mako'}: {m['content'][:200]}"
+            for m in tail
+        )
 
     def note_assistant_message(self, content: str):
         """Record an unprompted assistant message (heartbeat) in the buffer,
         so a reply from the user lands in context."""
         with self._lock:
             self._buffer.append({"role": "assistant", "content": content})
+        threading.Thread(target=self._persist_buffer, daemon=True).start()
 
     # ── session context ───────────────────────────────────────
     def session_context(self) -> str:
@@ -90,8 +131,9 @@ class Session:
         self._buffer.append({"role": "assistant", "content": answer})
         self.last_interaction = datetime.now(ZoneInfo(TIMEZONE))
 
-        # 7. curator runs off the hot path
+        # 7. curator + buffer persistence run off the hot path
         threading.Thread(target=curate, args=(user_message, answer), daemon=True).start()
+        threading.Thread(target=self._persist_buffer, daemon=True).start()
 
         print(f"⏱  TOTAL (excl. curator): {time.time() - t0:.2f}s", flush=True)
         print(f"{'─' * 50}\n", flush=True)

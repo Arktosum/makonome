@@ -171,6 +171,22 @@ EXCHANGE:
                 # Siddhu's — the curator only touches the fast layers
                 continue
 
+            # rewrite safety: full-rewrite semantics are lossy by nature,
+            # so guard every overwrite of an existing note
+            old = get_note(note_name)
+            if old is not None:
+                if content.strip() == old.strip():
+                    continue  # nothing actually changed — skip the churn
+                # fast-layer notes (threads resolve, context moves on) may
+                # legitimately shrink; knowledge notes must not
+                shrinkable = note_name in ("open_threads", "current_context")
+                if not shrinkable and len(old) > 300 and len(content) < len(old) * 0.6:
+                    print(f"⚠️  Rejected lossy rewrite of [{note_name}] "
+                          f"({len(old)} → {len(content)} chars)", flush=True)
+                    continue
+                # one-version undo: stash what's being replaced
+                write_note(f"_backup_{note_name}", old, category="system")
+
             write_note(
                 note_name, content,
                 category=_category_for(note_name),

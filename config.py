@@ -13,58 +13,76 @@ TIMEZONE = "Asia/Kolkata"
 #   - "groq"              → GROQ_API_KEY
 #   - "openai"            → OPENAI_API_KEY
 #   - "anthropic"         → ANTHROPIC_API_KEY
-#   - "openai_compatible" → LLM_BASE_URL + LLM_API_KEY (Ollama, Gemini, Mistral, vLLM...)
+#   - "openai_compatible" → per-route "base_url" + "api_key_env"
+#                           (defaults: LLM_BASE_URL / LLM_API_KEY)
 #
 # native_tools: True  → use the provider's structured tool-calling API
 #               False → fall back to text-based ReAct (for models without tool support)
+# fallback: where to retry when the primary provider errors or rate-limits.
+#           Free tiers have bad days — a fallback degrades one call, not Mako.
+
+_GEMINI = {
+    "provider": "openai_compatible",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "api_key_env": "GEMINI_API_KEY",
+}
+_GROQ_FALLBACK = {"provider": "groq", "base_url": None, "api_key_env": None,
+                  "model": "meta-llama/llama-4-scout-17b-16e-instruct"}
+
 MODEL_ROUTES = {
-    # main conversation — the voice of Mako
+    # main conversation — the voice of Mako. Groq for speed, gpt-oss-120b for brains.
     "chat": {
         "provider": "groq",
-        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "model": "openai/gpt-oss-120b",
         "native_tools": True,
         "max_tokens": 1024,
         "temperature": 1.0,
+        "fallback": {**_GROQ_FALLBACK},
     },
-    # background memory curation — cheap + deterministic
-    "curator": {
-        "provider": "groq",
-        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
-        "native_tools": False,
-        "max_tokens": 1200,
-        "temperature": 0.1,
-    },
-    # startup message
+    # startup message — fast and low-stakes
     "wakeup": {
         "provider": "groq",
-        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "model": "openai/gpt-oss-120b",
         "native_tools": False,
         "max_tokens": 300,
         "temperature": 1.0,
+        "fallback": {**_GROQ_FALLBACK},
     },
-    # unprompted check-ins — decides whether to speak at all
+    # background memory curation — highest volume, needs judgment + clean JSON
+    "curator": {
+        **_GEMINI,
+        "model": "gemini-2.5-flash-lite",
+        "native_tools": False,
+        "max_tokens": 1200,
+        "temperature": 0.1,
+        "fallback": {**_GROQ_FALLBACK},
+    },
+    # unprompted check-ins — hourly; judgment about silence is everything
     "heartbeat": {
-        "provider": "groq",
-        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        **_GEMINI,
+        "model": "gemini-2.5-flash",
         "native_tools": False,
         "max_tokens": 200,
         "temperature": 0.9,
+        "fallback": {**_GROQ_FALLBACK},
     },
-    # weekly self-reflection — rewrites who Mako is; runs rarely, worth a big model
+    # weekly self-reflection — rewrites who Mako is; worth the best free brain
     "reflection": {
-        "provider": "groq",
-        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        **_GEMINI,
+        "model": "gemini-2.5-pro",
         "native_tools": False,
         "max_tokens": 800,
         "temperature": 0.7,
+        "fallback": {**_GROQ_FALLBACK},
     },
     # weekly memory consolidation — distills the week, evolves about_siddhu slowly
     "consolidator": {
-        "provider": "groq",
-        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        **_GEMINI,
+        "model": "gemini-2.5-pro",
         "native_tools": False,
         "max_tokens": 1200,
         "temperature": 0.3,
+        "fallback": {**_GROQ_FALLBACK},
     },
 }
 
@@ -164,6 +182,12 @@ Open threads you could follow up on (things with pending outcomes):
 Your recent memories:
 {memories}
 
+The actual recent conversation (what was literally just said):
+{recent_convo}
+
+What you ALREADY said in recent check-ins:
+{already_said}
+
 Your job: decide if you have something genuine and natural to say right now.
 The BEST reasons to speak, in order:
 1. An open thread whose moment has arrived ("wasn't the result today?")
@@ -176,6 +200,10 @@ Rules:
 - NEVER say "I noticed you haven't talked to me" or anything needy
 - NEVER make up fake memories, events, or threads
 - A generic "how's your day going" is almost never worth sending — be SILENT instead
+- NEVER repeat or re-ask anything from your recent check-ins, even reworded.
+  If you already asked about something and got no reply, the topic is SPENT —
+  a friend asks once and then waits. Bringing it up again is SILENT territory
+  until {user} himself mentions it.
 - If you genuinely have nothing worth saying, respond with exactly: SILENT
 - You get this chance EVERY HOUR — a real friend texts first maybe once or
   twice a day, so the overwhelming majority of these checks must end in SILENT.

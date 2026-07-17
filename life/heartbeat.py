@@ -117,7 +117,7 @@ def heartbeat_tick(session, force: bool = False) -> str:
         silence = now - (last_talk or session.started)
 
     # ── the LLM decision ──────────────────────────────────
-    decision = _decide(now, silence)
+    decision = _decide(now, silence, session.recent_transcript())
 
     state["last_heartbeat"] = now.isoformat()
 
@@ -144,9 +144,19 @@ def heartbeat_tick(session, force: bool = False) -> str:
     return f"spoke: {decision}"
 
 
-def _decide(now: datetime, silence: timedelta) -> str | None:
+def _decide(now: datetime, silence: timedelta, transcript: str = "") -> str | None:
     """Ask the heartbeat model whether there's something worth saying."""
-    memories = get_recent_memory_rows(limit=6)
+    rows = get_recent_memory_rows(limit=30)
+
+    # what she already said unprompted — the #1 repetition guard
+    already = [r for r in rows
+               if r["role"] == "assistant" and "(checked in unprompted)" in r["content"]]
+    already_text = "\n".join(
+        f"[{r.get('timestamp', '')[:10]}] {r['content'].replace('(checked in unprompted) ', '')[:150]}"
+        for r in already[-5:]
+    ) or "(nothing yet)"
+
+    memories = [r for r in rows if "(checked in unprompted)" not in r["content"]][-6:]
     memories_text = "\n".join(
         f"[{m.get('timestamp', '')[:10]}] {m['content'][:150]}" for m in memories
     ) or "(no memories)"
@@ -158,6 +168,8 @@ def _decide(now: datetime, silence: timedelta) -> str | None:
         context=get_note("current_context") or "(unknown)",
         open_threads=get_note("open_threads") or "(nothing pending)",
         memories=memories_text,
+        already_said=already_text,
+        recent_convo=transcript or "(no conversation this session)",
     )
 
     try:

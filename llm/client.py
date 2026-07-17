@@ -34,32 +34,40 @@ class LLMResponse:
 
 
 # ── Lazy provider clients ─────────────────────────────────────────────────────
+# Cached per (provider, base_url, key_env) so any number of OpenAI-compatible
+# providers can coexist — each route may carry its own base_url/api_key_env.
 _clients: dict = {}
 
 
-def _client_for(provider: str):
-    if provider in _clients:
-        return _clients[provider]
+def _client_for(route: dict):
+    provider = route["provider"]
+    base_url = route.get("base_url") or (
+        os.getenv("LLM_BASE_URL") if provider == "openai_compatible" else None)
+    key_env = route.get("api_key_env")
+    cache_key = (provider, base_url, key_env)
+    if cache_key in _clients:
+        return _clients[cache_key]
+
+    def _key(default_env: str, fallback: str | None = None):
+        return os.getenv(key_env) if key_env else (os.getenv(default_env) or fallback)
 
     if provider == "groq":
         from groq import Groq
-        _clients[provider] = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        client = Groq(api_key=_key("GROQ_API_KEY"))
     elif provider == "openai":
         from openai import OpenAI
-        _clients[provider] = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        client = OpenAI(api_key=_key("OPENAI_API_KEY"))
     elif provider == "openai_compatible":
         from openai import OpenAI
-        _clients[provider] = OpenAI(
-            base_url=os.getenv("LLM_BASE_URL"),
-            api_key=os.getenv("LLM_API_KEY", "not-needed"),
-        )
+        client = OpenAI(base_url=base_url, api_key=_key("LLM_API_KEY", "not-needed"))
     elif provider == "anthropic":
         from anthropic import Anthropic
-        _clients[provider] = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        client = Anthropic(api_key=_key("ANTHROPIC_API_KEY"))
     else:
         raise ValueError(f"Unknown LLM provider: {provider}")
 
-    return _clients[provider]
+    _clients[cache_key] = client
+    return client
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -74,8 +82,24 @@ def complete(messages: list[dict], tools: list[dict] | None = None,
     """
     Run one completion on whatever model the given role routes to.
     `tools` is a list of specs: {"name", "description", "input_schema"}.
+    If the route defines a "fallback", provider failures (rate limits,
+    outages) retry once there instead of breaking the caller.
     """
     route = MODEL_ROUTES[role]
+    try:
+        return _complete_route(route, messages, tools, max_tokens, temperature)
+    except Exception as e:
+        fb = route.get("fallback")
+        if not fb:
+            raise
+        print(f"⚠️  [{role}] {route['provider']}/{route['model']} failed ({e}) "
+              f"— falling back to {fb['provider']}/{fb['model']}", flush=True)
+        fb_route = {**route, **fb, "fallback": None}
+        return _complete_route(fb_route, messages, tools, max_tokens, temperature)
+
+
+def _complete_route(route: dict, messages: list[dict], tools: list[dict] | None,
+                    max_tokens: int | None, temperature: float | None) -> LLMResponse:
     provider = route["provider"]
     kwargs = {
         "model": route["model"],
@@ -86,9 +110,9 @@ def complete(messages: list[dict], tools: list[dict] | None = None,
         tools = None  # caller handles the ReAct fallback path
 
     if provider == "anthropic":
-        resp = _complete_anthropic(messages, tools, kwargs)
+        resp = _complete_anthropic(route, messages, tools, kwargs)
     else:  # groq / openai / openai_compatible all speak the OpenAI protocol
-        resp = _complete_openai(provider, messages, tools, kwargs)
+        resp = _complete_openai(route, messages, tools, kwargs)
 
     if resp.usage:
         print(f"   tokens — prompt: {resp.usage.get('prompt', '?')} | "
@@ -99,9 +123,9 @@ def complete(messages: list[dict], tools: list[dict] | None = None,
 
 # ── OpenAI-protocol driver (groq, openai, openai_compatible) ─────────────────
 
-def _complete_openai(provider: str, messages: list[dict],
+def _complete_openai(route: dict, messages: list[dict],
                      tools: list[dict] | None, kwargs: dict) -> LLMResponse:
-    client = _client_for(provider)
+    client = _client_for(route)
 
     api_kwargs = dict(kwargs, messages=messages)
     if tools:
@@ -156,9 +180,9 @@ def tool_result_message(tool_call: ToolCall, result: str) -> dict:
 
 # ── Anthropic driver ──────────────────────────────────────────────────────────
 
-def _complete_anthropic(messages: list[dict], tools: list[dict] | None,
+def _complete_anthropic(route: dict, messages: list[dict], tools: list[dict] | None,
                         kwargs: dict) -> LLMResponse:
-    client = _client_for("anthropic")
+    client = _client_for(route)
 
     system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
     converted = []

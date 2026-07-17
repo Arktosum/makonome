@@ -50,7 +50,8 @@ def get_note(name: str) -> str | None:
         return None
 
 
-def write_note(name: str, content: str, category: str = "general", auto_inject: bool = False):
+def write_note(name: str, content: str, category: str = "general",
+               auto_inject: bool = False, quiet: bool = False):
     """Create or fully overwrite a note."""
     try:
         sb = get_client()
@@ -66,7 +67,8 @@ def write_note(name: str, content: str, category: str = "general", auto_inject: 
                 "content":    content,
                 "updated_at": datetime.now(ZoneInfo(TIMEZONE)).isoformat(),
             }).eq("name", name).execute()
-            print(f"📝 Note updated: {name}", flush=True)
+            if not quiet:
+                print(f"📝 Note updated: {name}", flush=True)
         else:
             sb.table("notes").insert({
                 "name":        name,
@@ -75,7 +77,8 @@ def write_note(name: str, content: str, category: str = "general", auto_inject: 
                 "auto_inject": auto_inject,
                 "updated_at":  datetime.now(ZoneInfo(TIMEZONE)).isoformat(),
             }).execute()
-            print(f"📝 Note created: {name}", flush=True)
+            if not quiet:
+                print(f"📝 Note created: {name}", flush=True)
 
     except Exception as e:
         print(f"⚠️  Write note failed: {e}", flush=True)
