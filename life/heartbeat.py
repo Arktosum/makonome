@@ -16,8 +16,8 @@ import threading
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from config import (HEARTBEAT, REFLECTION_EVERY_DAYS, CONSOLIDATION_EVERY_DAYS,
-                    HEARTBEAT_PROMPT, USER_NAME, TIMEZONE)
+from config import (HEARTBEAT, HOUSEKEEPING, REFLECTION_EVERY_DAYS,
+                    CONSOLIDATION_EVERY_DAYS, HEARTBEAT_PROMPT, USER_NAME, TIMEZONE)
 from llm import complete
 from memory.episodic import save_memory, get_last_memory_timestamp, get_recent_memory_rows
 from memory.notes import get_note, write_note
@@ -122,6 +122,8 @@ def heartbeat_tick(session, force: bool = False) -> str:
     state["last_heartbeat"] = now.isoformat()
 
     if decision is None:
+        state["silent_streak"] = state.get("silent_streak", 0) + 1
+        _maybe_housekeep(now, state)
         _save_state(state)
         emit({"type": "heartbeat", "data": {"decision": "silent"}})
         print("💓 Heartbeat: SILENT", flush=True)
@@ -202,6 +204,25 @@ def _maybe_reflect(now: datetime, state: dict):
             _save_state(state)
     except Exception as e:
         print(f"⚠️  Reflection failed: {e}", flush=True)
+
+
+def _maybe_housekeep(now: datetime, state: dict):
+    """Every Nth silent heartbeat (at most ~daily), dream: tidy memory."""
+    if state["silent_streak"] % HOUSEKEEPING["every_n_silent"] != 0:
+        return
+    last = _parse_iso(state.get("last_housekeeping"))
+    if last and (now - last) < timedelta(hours=HOUSEKEEPING["min_hours_between"]):
+        return
+    try:
+        from life.housekeeping import run_housekeeping
+        summary = run_housekeeping()
+        state["last_housekeeping"] = now.isoformat()
+        emit({"type": "heartbeat", "data": {
+            "decision": "housekeeping",
+            "message": f"tidied memory — {summary['deduped']} duplicate(s), "
+                       f"threads {'pruned' if summary['threads_pruned'] else 'ok'}"}})
+    except Exception as e:
+        print(f"⚠️  Housekeeping failed: {e}", flush=True)
 
 
 def _maybe_consolidate(now: datetime, state: dict):

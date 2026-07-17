@@ -112,6 +112,33 @@ REFLECTION_EVERY_DAYS = 7
 CONSOLIDATION_EVERY_DAYS = 7
 CONSOLIDATION_MIN_MEMORIES = 5   # skip quiet weeks
 
+# ── Housekeeping ("dreaming") ─────────────────────────────────────────────────
+# Quiet heartbeat ticks occasionally become memory-tidying passes.
+HOUSEKEEPING = {
+    "every_n_silent": 6,        # every Nth SILENT heartbeat may housekeep
+    "min_hours_between": 20,    # at most ~once a day
+    "dedupe_threshold": 0.92,   # cosine similarity to call two memories the same
+    "dedupe_window": 100,       # how many recent memories to sweep
+}
+
+HOUSEKEEPING_THREADS_PROMPT = """
+You are tidying Mako's open_threads note — the list of pending things worth
+following up on with {user}.
+
+Today's date: {today}
+
+Current open_threads:
+{threads}
+
+Remove threads that are clearly DEAD: resolved long ago, obsolete, or so old
+(3+ weeks with no movement) that bringing them up would feel weird rather than
+caring. Keep everything that still genuinely deserves a future follow-up.
+
+Respond with ONLY the new note content (a markdown checklist, or exactly
+"(nothing pending)" if empty). If nothing should change, respond with exactly:
+UNCHANGED
+"""
+
 # ── Personality (the SEED — who Mako starts as; who she becomes lives in
 #    the about_mako note and evolves over time) ─────────────────────────────────
 SYSTEM_PROMPT = """

@@ -38,6 +38,9 @@ Respond in JSON only:
 {{
   "save_memory": true or false,
   "memory": "concise episodic memory worth saving (or null)",
+  "importance": 1-10 — how much this memory should outlast time. 1-3: trivia,
+                small talk. 4-6: everyday life worth recalling. 7-8: real events,
+                decisions, feelings that matter. 9-10: life milestones.,
   "journal": "ONE first-person line in Mako's voice about this exchange — an observation,
               a feeling, something learned about {USER_NAME} or about herself (or null
               if the exchange was too trivial to journal)",
@@ -146,10 +149,11 @@ EXCHANGE:
         text = response.text.strip().replace("```json", "").replace("```", "").strip()
         data = json.loads(text)
 
-        # episodic memory
+        # episodic memory — importance-tagged, deduped at write time
         if data.get("save_memory") and data.get("memory"):
-            save_memory("user", data["memory"])
-            print(f"🧠 Memory saved: {data['memory'][:80]}", flush=True)
+            importance = data.get("importance") or 5
+            if save_memory("user", data["memory"], importance=importance, dedupe=True):
+                print(f"🧠 Memory saved [!{importance}]: {data['memory'][:80]}", flush=True)
 
         # Mako's journal — her inner voice, feeds the weekly reflection
         if data.get("journal"):

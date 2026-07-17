@@ -28,7 +28,7 @@ def consolidate(since_iso: str) -> bool:
     t = time.time()
 
     rows = [r for r in get_memories_since(since_iso)
-            if not r["content"].startswith("[week of")]  # never re-consolidate summaries
+            if r.get("role") != "consolidation"]  # never re-consolidate summaries
     if len(rows) < CONSOLIDATION_MIN_MEMORIES:
         print(f"🗜  Consolidation skipped — only {len(rows)} memories in period "
               f"(need {CONSOLIDATION_MIN_MEMORIES}+)", flush=True)
@@ -69,7 +69,7 @@ CURRENT_CONTEXT:
         return False
 
     week_label = datetime.now(ZoneInfo(TIMEZONE)).strftime("%Y-%m-%d")
-    save_memory("consolidation", f"[week of {week_label}] {summary}")
+    save_memory("consolidation", f"[week of {week_label}] {summary}", importance=8)
     print(f"🗜  Weekly summary saved: {summary[:80]}", flush=True)
 
     new_about = data.get("about_siddhu")

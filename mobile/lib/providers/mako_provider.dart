@@ -206,6 +206,8 @@ class MakoProvider extends ChangeNotifier {
           _add(ChatMessage('system', '🪞 Mako reflected on who she is becoming'));
         } else if (decision == 'consolidated') {
           _add(ChatMessage('system', '🗜 Mako distilled this week\'s memories'));
+        } else if (decision == 'housekeeping') {
+          _add(ChatMessage('system', '🧹 Mako tidied her memories while dreaming'));
         }
         break;
     }
