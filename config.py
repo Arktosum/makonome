@@ -51,7 +51,7 @@ MODEL_ROUTES = {
     # background memory curation — highest volume, needs judgment + clean JSON
     "curator": {
         **_GEMINI,
-        "model": "gemini-2.5-flash-lite",
+        "model": "gemini-3.1-flash-lite",
         "native_tools": False,
         "max_tokens": 1200,
         "temperature": 0.1,
@@ -60,27 +60,29 @@ MODEL_ROUTES = {
     # unprompted check-ins — hourly; judgment about silence is everything
     "heartbeat": {
         **_GEMINI,
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.5-flash",
         "native_tools": False,
-        "max_tokens": 200,
+        "max_tokens": 400,
         "temperature": 0.9,
         "fallback": {**_GROQ_FALLBACK},
     },
-    # weekly self-reflection — rewrites who Mako is; worth the best free brain
+    # weekly self-reflection — rewrites who Mako is; worth the best free brain.
+    # (free tier has no Pro quota — 3-flash-preview is a reasoning model, the
+    # sharpest free option; token budget covers its thinking + the output)
     "reflection": {
         **_GEMINI,
-        "model": "gemini-2.5-pro",
+        "model": "gemini-3-flash-preview",
         "native_tools": False,
-        "max_tokens": 800,
+        "max_tokens": 2500,
         "temperature": 0.7,
         "fallback": {**_GROQ_FALLBACK},
     },
     # weekly memory consolidation — distills the week, evolves about_siddhu slowly
     "consolidator": {
         **_GEMINI,
-        "model": "gemini-2.5-pro",
+        "model": "gemini-3-flash-preview",
         "native_tools": False,
-        "max_tokens": 1200,
+        "max_tokens": 3000,
         "temperature": 0.3,
         "fallback": {**_GROQ_FALLBACK},
     },
