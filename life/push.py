@@ -17,15 +17,30 @@ _NTFY_SERVER = os.environ.get("MAKO_NTFY_SERVER", "https://ntfy.sh").rstrip("/")
 
 
 def is_configured() -> bool:
-    return bool(os.environ.get("MAKO_NTFY_TOPIC"))
+    from telegram_bridge import is_configured as tg_configured
+    return bool(os.environ.get("MAKO_NTFY_TOPIC")) or tg_configured()
 
 
 def push(message: str, title: str = "Mako", tags: str = "green_heart",
          priority: str = "default") -> bool:
     """
-    Send a push notification. Returns True on success, False otherwise.
-    Never raises — a failed push must never break the caller.
+    Send a push notification through every configured channel.
+    Telegram is preferred (the notification is a real chat you can reply to);
+    ntfy fires alongside if set. Never raises — a failed push must never
+    break the caller. Returns True if any channel delivered.
     """
+    delivered = False
+    try:
+        from telegram_bridge import is_configured as tg_configured, send_message
+        if tg_configured() and send_message(message):
+            print(f"📨 Telegram push sent: {message[:60]}", flush=True)
+            delivered = True
+    except Exception as e:
+        print(f"⚠️  Telegram push failed: {e}", flush=True)
+    return _push_ntfy(message, title, tags, priority) or delivered
+
+
+def _push_ntfy(message: str, title: str, tags: str, priority: str) -> bool:
     topic = os.environ.get("MAKO_NTFY_TOPIC")
     if not topic:
         return False

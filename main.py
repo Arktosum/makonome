@@ -38,6 +38,9 @@ def main():
     from life.heartbeat import start_heartbeat
     start_heartbeat(session)
 
+    from telegram_bridge import start_telegram
+    start_telegram(session)
+
     if IS_CLOUD:
         print("☁️  Running in cloud mode", flush=True)
         # blocks forever — Flask handles everything

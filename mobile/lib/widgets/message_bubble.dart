@@ -5,6 +5,24 @@ import '../providers/mako_provider.dart';
 import '../theme.dart';
 import 'prompt_inspector.dart';
 
+/// Markdown-lite: **bold** and *bold* become real bold; everything else
+/// stays literal. Mako's style guide uses asterisk emphasis heavily.
+List<TextSpan> _markdownSpans(String text) {
+  final spans = <TextSpan>[];
+  final pattern = RegExp(r'\*\*(.+?)\*\*|\*([^*\n]+)\*');
+  var last = 0;
+  for (final m in pattern.allMatches(text)) {
+    if (m.start > last) spans.add(TextSpan(text: text.substring(last, m.start)));
+    spans.add(TextSpan(
+      text: m.group(1) ?? m.group(2),
+      style: const TextStyle(fontWeight: FontWeight.w700),
+    ));
+    last = m.end;
+  }
+  if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
+  return spans;
+}
+
 class MessageBubble extends StatelessWidget {
   final ChatMessage message;
   const MessageBubble({super.key, required this.message});
@@ -129,9 +147,11 @@ class MessageBubble extends StatelessWidget {
                       fontSize: 11,
                       fontWeight: FontWeight.w600)),
             ),
-          SelectableText(message.text,
-              style: const TextStyle(
-                  color: MakoColors.text, fontSize: 15, height: 1.35)),
+          SelectableText.rich(
+            TextSpan(children: _markdownSpans(message.text)),
+            style: const TextStyle(
+                color: MakoColors.text, fontSize: 15, height: 1.35),
+          ),
           const SizedBox(height: 3),
           Row(
             mainAxisSize: MainAxisSize.min,

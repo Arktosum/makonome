@@ -61,6 +61,8 @@ Deploys to Render via `render.yaml` (`RENDER` env var switches to cloud mode).
 | `BALANCEFLOW_SUPABASE_URL` / `BALANCEFLOW_SUPABASE_ANON_KEY` | finance tools |
 | `MAKO_DASH_TOKEN` | shared-secret auth (recommended in cloud) |
 | `MAKO_NTFY_TOPIC` | secret ntfy.sh topic for push notifications |
+| `GEMINI_API_KEY` | Gemini free tier — curator/heartbeat/reflection routes |
+| `MAKO_TELEGRAM_BOT_TOKEN` / `MAKO_TELEGRAM_CHAT_ID` | Telegram bridge (chat + replyable heartbeats) |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `LLM_BASE_URL` + `LLM_API_KEY` | optional alternate providers |
 
 ## API
@@ -86,7 +88,13 @@ dashboard, terminal, mobile, and API.
 
 ## Omnipresence setup
 
-Three pieces make Mako reachable anywhere:
+Four pieces make Mako reachable anywhere:
+
+0. **Telegram (the best door)** — create a bot via @BotFather, set
+   `MAKO_TELEGRAM_BOT_TOKEN`, message it once, then set the printed
+   `MAKO_TELEGRAM_CHAT_ID`. Full conversations from any device, and
+   heartbeat check-ins arrive as normal Telegram messages you can
+   reply to. Only the owner's chat id is ever answered.
 
 1. **Push notifications (ntfy)** — pick a long random topic name (it's a
    password), set it as `MAKO_NTFY_TOPIC` on the server, install the free

@@ -19,6 +19,12 @@ services:
         sync: false
       - key: MAKO_NTFY_TOPIC
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: MAKO_TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: MAKO_TELEGRAM_CHAT_ID
+        sync: false
       - key: PYTHON_VERSION
         value: 3.11.8
     autoDeploy: true
