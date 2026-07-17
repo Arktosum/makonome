@@ -57,10 +57,11 @@ MODEL_ROUTES = {
         "temperature": 0.1,
         "fallback": {**_GROQ_FALLBACK},
     },
-    # unprompted check-ins — hourly; judgment about silence is everything
+    # unprompted check-ins — hourly; judgment about silence is everything.
+    # (2.5-flash over 3.5-flash: the newer one 503'd repeatedly under load)
     "heartbeat": {
         **_GEMINI,
-        "model": "gemini-3.5-flash",
+        "model": "gemini-2.5-flash",
         "native_tools": False,
         "max_tokens": 400,
         "temperature": 0.9,
