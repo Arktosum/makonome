@@ -211,6 +211,24 @@ def get_recent_memory_rows(limit: int = 6) -> list[dict]:
         return []
 
 
+def get_recent_unprompted_checkins(limit: int = 5) -> list[dict]:
+    """Retrieve the most recent unprompted check-in memories, oldest first."""
+    try:
+        result = get_client().table("memories") \
+            .select("role, content, timestamp") \
+            .like("content", "%(checked in unprompted)%") \
+            .order("timestamp", desc=True) \
+            .limit(limit) \
+            .execute()
+        rows = list(reversed(result.data or []))
+        for r in rows:
+            _, r["content"] = _parse_importance(r["content"])
+        return rows
+    except Exception as e:
+        print(f"⚠️  Could not get unprompted check-ins: {e}", flush=True)
+        return []
+
+
 def clear_memories():
     """Wipe all episodic memories."""
     try:

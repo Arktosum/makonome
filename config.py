@@ -58,12 +58,13 @@ MODEL_ROUTES = {
         "fallback": {**_GROQ_FALLBACK},
     },
     # unprompted check-ins — hourly; judgment about silence is everything.
-    # (2.5-flash over 3.5-flash: the newer one 503'd repeatedly under load)
+    # gemini-2.5-flash is a reasoning model whose thinking tokens (often 1000-1800)
+    # count against max_tokens; token budget must cover thinking + output.
     "heartbeat": {
         **_GEMINI,
         "model": "gemini-2.5-flash",
         "native_tools": False,
-        "max_tokens": 400,
+        "max_tokens": 3000,
         "temperature": 0.9,
         "fallback": {**_GROQ_FALLBACK},
     },

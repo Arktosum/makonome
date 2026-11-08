@@ -17,9 +17,11 @@ import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from config import (HEARTBEAT, HOUSEKEEPING, REFLECTION_EVERY_DAYS,
-                    CONSOLIDATION_EVERY_DAYS, HEARTBEAT_PROMPT, USER_NAME, TIMEZONE)
+                    CONSOLIDATION_EVERY_DAYS, HEARTBEAT_PROMPT, USER_NAME, TIMEZONE,
+                    ASSISTANT_NAME)
 from llm import complete
-from memory.episodic import save_memory, get_last_memory_timestamp, get_recent_memory_rows
+from memory.episodic import (save_memory, get_last_memory_timestamp,
+                             get_recent_memory_rows, get_recent_unprompted_checkins)
 from memory.notes import get_note, write_note
 from agent.events import emit
 
@@ -117,7 +119,7 @@ def heartbeat_tick(session, force: bool = False) -> str:
         silence = now - (last_talk or session.started)
 
     # ── the LLM decision ──────────────────────────────────
-    decision = _decide(now, silence, session.recent_transcript())
+    decision = _decide(now, silence, session.recent_transcript(), state=state)
 
     state["last_heartbeat"] = now.isoformat()
 
@@ -131,6 +133,9 @@ def heartbeat_tick(session, force: bool = False) -> str:
 
     # speak: dashboard message + session buffer + memory of having spoken
     state["count_today"] = state.get("count_today", 0) + 1
+    recent_checkins = state.get("recent_checkins", [])
+    recent_checkins.append({"timestamp": now.isoformat(), "message": decision})
+    state["recent_checkins"] = recent_checkins[-10:]
     _save_state(state)
 
     emit({"type": "heartbeat", "data": {"decision": "spoke", "message": decision}})
@@ -146,16 +151,28 @@ def heartbeat_tick(session, force: bool = False) -> str:
     return f"spoke: {decision}"
 
 
-def _decide(now: datetime, silence: timedelta, transcript: str = "") -> str | None:
+def _decide(now: datetime, silence: timedelta, transcript: str = "", state: dict | None = None) -> str | None:
     """Ask the heartbeat model whether there's something worth saying."""
     rows = get_recent_memory_rows(limit=30)
 
     # what she already said unprompted — the #1 repetition guard
-    already = [r for r in rows
-               if r["role"] == "assistant" and "(checked in unprompted)" in r["content"]]
+    unprompted_rows = get_recent_unprompted_checkins(limit=5)
+    if not unprompted_rows:
+        unprompted_rows = [r for r in rows
+                           if r["role"] == "assistant" and "(checked in unprompted)" in r["content"]][-5:]
+
+    seen_checkins = {r["content"].replace("(checked in unprompted) ", "").strip() for r in unprompted_rows}
+    if state and state.get("recent_checkins"):
+        for entry in state.get("recent_checkins", []):
+            msg = entry.get("message", "").strip()
+            if msg and msg not in seen_checkins:
+                unprompted_rows.append({"timestamp": entry.get("timestamp", ""), "content": msg})
+                seen_checkins.add(msg)
+
+    unprompted_rows.sort(key=lambda r: r.get("timestamp", "") or "")
     already_text = "\n".join(
         f"[{r.get('timestamp', '')[:10]}] {r['content'].replace('(checked in unprompted) ', '')[:150]}"
-        for r in already[-5:]
+        for r in unprompted_rows[-5:]
     ) or "(nothing yet)"
 
     memories = [r for r in rows if "(checked in unprompted)" not in r["content"]][-6:]
@@ -184,9 +201,32 @@ def _decide(now: datetime, silence: timedelta, transcript: str = "") -> str | No
         print(f"⚠️  Heartbeat LLM failed: {e}", flush=True)
         return None
 
+    if getattr(response, "finish_reason", "stop") == "length":
+        print(f"⚠️  Heartbeat output truncated (hit max_tokens limit) — staying SILENT: {response.text[:60]!r}", flush=True)
+        return None
+
     text = response.text.strip()
     if not text or "SILENT" in text.upper()[:20]:
         return None
+
+    # Strip any bot name prefix like "Mako: ", "mako: ", or "{ASSISTANT_NAME}: "
+    for prefix in (f"{ASSISTANT_NAME}:", f"{ASSISTANT_NAME.lower()}:", "mako:"):
+        if text.lower().startswith(prefix.lower()):
+            text = text[len(prefix):].strip()
+
+    # Strip enclosing quotes if any
+    if (text.startswith('"') and text.endswith('"')) or (text.startswith('“') and text.endswith('”')):
+        text = text[1:-1].strip()
+
+    # Guard against incomplete sentence fragments:
+    # Must end with terminal punctuation
+    if not text:
+        return None
+    valid_endings = ('.', '!', '?', '…', '."', '!"', '?"', '.”', '!”', '?”')
+    if not any(text.endswith(end) for end in valid_endings) or text.endswith(('“', '"', '—', '-')):
+        print(f"⚠️  Heartbeat text not a complete sentence ({text!r}) — staying SILENT", flush=True)
+        return None
+
     return text
 
 

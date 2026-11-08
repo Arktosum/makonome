@@ -27,6 +27,7 @@ class LLMResponse:
     text: str
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: dict = field(default_factory=dict)
+    finish_reason: str = "stop"
 
     @property
     def has_tool_calls(self) -> bool:
@@ -139,7 +140,11 @@ def _complete_openai(route: dict, messages: list[dict],
         } for t in tools]
 
     response = client.chat.completions.create(**api_kwargs)
-    choice = response.choices[0].message
+    first_choice = response.choices[0]
+    choice = first_choice.message
+    finish_reason = getattr(first_choice, "finish_reason", "stop") or "stop"
+    if finish_reason == "length":
+        print(f"⚠️  [{route.get('model')}] response truncated: hit max_tokens {kwargs.get('max_tokens')}", flush=True)
 
     tool_calls = []
     for tc in (choice.tool_calls or []):
@@ -157,7 +162,7 @@ def _complete_openai(route: dict, messages: list[dict],
             "total": response.usage.total_tokens,
         }
 
-    return LLMResponse(text=choice.content or "", tool_calls=tool_calls, usage=usage)
+    return LLMResponse(text=choice.content or "", tool_calls=tool_calls, usage=usage, finish_reason=finish_reason)
 
 
 def assistant_tool_call_message(text: str, tool_calls: list[ToolCall]) -> dict:
@@ -228,6 +233,10 @@ def _complete_anthropic(route: dict, messages: list[dict], tools: list[dict] | N
         } for t in tools]
 
     response = client.messages.create(**api_kwargs)
+    stop_reason = getattr(response, "stop_reason", None)
+    finish_reason = "length" if stop_reason == "max_tokens" else "stop"
+    if finish_reason == "length":
+        print(f"⚠️  [{route.get('model')}] response truncated: hit max_tokens {kwargs.get('max_tokens')}", flush=True)
 
     text_parts, tool_calls = [], []
     for block in response.content:
@@ -241,4 +250,4 @@ def _complete_anthropic(route: dict, messages: list[dict], tools: list[dict] | N
         "completion": response.usage.output_tokens,
         "total": response.usage.input_tokens + response.usage.output_tokens,
     }
-    return LLMResponse(text="\n".join(text_parts), tool_calls=tool_calls, usage=usage)
+    return LLMResponse(text="\n".join(text_parts), tool_calls=tool_calls, usage=usage, finish_reason=finish_reason)

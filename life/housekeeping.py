@@ -30,8 +30,13 @@ def dedupe_sweep(dry_run: bool = False) -> list[str]:
     for i, keeper in enumerate(rows):
         if keeper["id"] in removed_ids:
             continue
+        # Never prune unprompted check-ins — they are the repetition guard history
+        if "(checked in unprompted)" in keeper.get("content", ""):
+            continue
         for other in rows[i + 1:]:
             if other["id"] in removed_ids:
+                continue
+            if "(checked in unprompted)" in other.get("content", ""):
                 continue
             if _cosine(keeper["embedding"], other["embedding"]) >= threshold:
                 _, clean = _parse_importance(other["content"])

@@ -72,6 +72,10 @@ def send_message(text: str, chat_id: str | None = None) -> bool:
     chat_id = chat_id or _owner_chat_id()
     if not chat_id or not text:
         return False
+    # Defensive: strip accidental bot name prefix if present
+    for prefix in ("Mako:", "mako:"):
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
     ok = True
     for chunk in chunk_text(text):
         # Mako writes *bold* — Telegram's legacy Markdown matches; fall back
